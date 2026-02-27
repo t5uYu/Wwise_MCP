@@ -209,3 +209,29 @@ class WwiseRAG:
             return "\n".join(lines)
         except Exception as e:
             return f"[SoundBank] 获取失败：{e}"
+
+
+async def build_dynamic_context(user_message: str = "") -> str:
+    """
+    收集并格式化动态上下文，供 System Prompt 区块 5 使用。
+
+    Args:
+        user_message: 可选的用户消息，用于关键词驱动的按需收集。
+                      为空时仅收集项目基础信息（始终收集）。
+
+    Returns:
+        格式化的动态上下文字符串，无内容时返回空字符串。
+    """
+    try:
+        rag = WwiseRAG()
+        context_map = await rag.collect(user_message)
+        if not context_map:
+            return ""
+        lines = ["", "--- 当前 Wwise 项目状态（动态） ---"]
+        for ctx in context_map.values():
+            lines.append(ctx)
+        lines.append("---")
+        return "\n".join(lines)
+    except Exception as e:
+        logger.warning("build_dynamic_context 失败：%s", e)
+        return ""

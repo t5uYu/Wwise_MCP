@@ -7,6 +7,7 @@ from typing import Any, Union
 
 from ..core.adapter import WwiseAdapter
 from ..core.exceptions import WwiseMCPError
+from ..rag.doc_index import doc_index
 
 logger = logging.getLogger("wwise_mcp.tools.action")
 
@@ -113,6 +114,17 @@ async def set_property(
 
         results = []
         for prop_name, prop_value in properties.items():
+            # 防御性校验：属性名必须在已知白名单中
+            if not doc_index.is_valid_property(prop_name):
+                suggestions = doc_index.get_similar_properties(prop_name)
+                results.append({
+                    "property": prop_name,
+                    "value": prop_value,
+                    "success": False,
+                    "error": f"未知属性名 '{prop_name}'，请检查拼写",
+                    "suggestion": f"相近的合法属性名：{suggestions}" if suggestions else "请调用 get_object_properties 获取合法属性列表",
+                })
+                continue
             try:
                 await adapter.set_property(object_path, prop_name, prop_value, platform)
                 results.append({"property": prop_name, "value": prop_value, "success": True})
@@ -241,54 +253,25 @@ async def set_rtpc_binding(
     """
     将 Game Parameter（RTPC）绑定到对象属性。
 
+    ⚠️ WAAPI 限制：Wwise WAAPI 2024.1 不支持通过 API 创建 RTPC 绑定。
+    该操作需要在 Wwise 图形界面中手动完成。
+
     Args:
         object_path:          目标对象路径
         property:             要绑定的属性，如 'Volume', 'Pitch', 'LowPassFilter'
         game_parameter_path:  Game Parameter 路径，如 '\\Game Parameters\\Default Work Unit\\Distance'
-        curve_type:           曲线类型：'Linear' | 'Log1' | 'Log2' | 'Log3' | 'Exp1' | 'Exp2' | 'Exp3' | 'SCurve' | 'InvertedSCurve'
-
-    WAAPI 映射：ak.wwise.core.object.setReference（将 RTPC 曲线绑定到指定属性）
+        curve_type:           曲线类型：'Linear' | 'Log1' | 'Log2' | 'Exp1' | 'SCurve' | 'InvertedSCurve'
     """
-    try:
-        adapter = WwiseAdapter()
-
-        # 在 Wwise 2024.1 中，RTPC 绑定通过设置属性上的 Rtpc 引用实现
-        # 使用 ak.wwise.core.object.addObjectToList 或 setReference
-        # 这里使用 WAAPI 的 RTPC 绑定接口
-        args = {
-            "object": {"path": object_path},
-            "rtpc": {
-                "property": property,
-                "gameParameter": {"path": game_parameter_path},
-                "curve": curve_type,
-            },
-        }
-
-        # Wwise 2024.1 使用 addAttenuation/addRtpc 系列接口
-        # 降级到 setReference 模式确保兼容性
-        await adapter.set_reference(
-            object_path,
-            f"{property}:RTPCController",
-            game_parameter_path,
-        )
-
-        # 验证绑定是否成功
-        objects = await adapter.get_objects(
-            from_spec={"path": object_path},
-            return_fields=["name", "path", property],
-        )
-
-        return _ok({
-            "object_path": object_path,
-            "property": property,
-            "game_parameter": game_parameter_path,
-            "curve_type": curve_type,
-            "bound": True,
-        })
-    except WwiseMCPError as e:
-        return _err(e)
-    except Exception as e:
-        return _err_raw("unexpected_error", str(e))
+    param_name = game_parameter_path.split("\\")[-1]
+    return _err_raw(
+        "waapi_not_supported",
+        f"Wwise WAAPI 2024.1 不支持通过 API 创建 RTPC 绑定（将 Game Parameter 关联到对象属性）。"
+        f"经实测确认：'Rtpc' 类型无法通过 ak.wwise.core.object.create 创建，"
+        f"ak.wwise.core.object.addObjectToList 在 2024.1 中不存在。",
+        f"请在 Wwise 中手动操作：选中对象 '{object_path.split(chr(92))[-1]}' "
+        f"→ 属性编辑器 → 找到属性 '{property}' → 右键 → Add RTPC "
+        f"→ 选择 Game Parameter '{param_name}'（曲线类型：{curve_type}）。",
+    )
 
 
 async def add_effect(
@@ -300,43 +283,25 @@ async def add_effect(
     """
     在对象的效果器链上添加 Effect。
 
+    ⚠️ WAAPI 限制：Wwise WAAPI 2024.1 不支持通过 API 在 Sound/Bus 上创建 Effect Slot。
+    该操作需要在 Wwise 图形界面中手动完成。
+
     Args:
         object_path: 目标 Sound/Bus 路径
-        effect_type: 效果器类型，如 'Wwise Compressor', 'Wwise Parametric EQ', 'Wwise Reverb' 等
+        effect_type: 效果器类型，如 'Wwise Compressor', 'Wwise Parametric EQ', 'Wwise RoomVerb'
         slot:        效果器插槽索引（0-3）
         effect_name: 效果器名称（可选）
-
-    Returns:
-        新创建的 Effect 对象信息
     """
-    try:
-        adapter = WwiseAdapter()
-
-        if effect_name is None:
-            effect_name = f"{effect_type.replace(' ', '_')}_{slot}"
-
-        # 在对象的 Effects 下创建效果器
-        result = await adapter.create_object(
-            name=effect_name,
-            obj_type=effect_type,
-            parent_path=f"{object_path}\\Effects",
-            on_conflict="rename",
-        )
-
-        return _ok({
-            "object_path": object_path,
-            "effect": {
-                "id": result.get("id"),
-                "name": effect_name,
-                "path": result.get("path"),
-                "type": effect_type,
-                "slot": slot,
-            },
-        })
-    except WwiseMCPError as e:
-        return _err(e)
-    except Exception as e:
-        return _err_raw("unexpected_error", str(e))
+    obj_name = object_path.split("\\")[-1]
+    return _err_raw(
+        "waapi_not_supported",
+        f"Wwise WAAPI 2024.1 不支持通过 API 在 Sound/Bus 对象上创建 Effect Slot。"
+        f"经实测确认：EffectSlot 类型无法通过 ak.wwise.core.object.create 创建（Sound/Bus 均不允许），"
+        f"Effect 类型对象也无法在 Effects 工作单元下通过 API 创建。",
+        f"请在 Wwise 中手动操作：选中对象 '{obj_name}' "
+        f"→ 属性编辑器 → Effects 标签页 → Effect Slot {slot} "
+        f"→ 点击添加 → 选择效果器类型 '{effect_type}'。",
+    )
 
 
 async def delete_object(object_path: str, force: bool = False) -> dict:

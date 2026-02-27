@@ -19,6 +19,7 @@ from fastmcp import FastMCP
 from .config import settings
 from .core import init_connection
 from .prompts.system_prompt import STATIC_SYSTEM_PROMPT
+from .rag.context_collector import build_dynamic_context
 from .tools import (
     # Query
     get_project_hierarchy,
@@ -391,7 +392,9 @@ async def tool_execute_waapi(
 @mcp.resource("wwise://system_prompt")
 async def get_system_prompt() -> str:
     """Wwise 2024.1 领域 System Prompt（供 MCP Client 获取并注入到 LLM）"""
-    return STATIC_SYSTEM_PROMPT
+    await _ensure_connection()
+    dynamic = await build_dynamic_context()
+    return STATIC_SYSTEM_PROMPT + dynamic
 
 
 # ------------------------------------------------------------------

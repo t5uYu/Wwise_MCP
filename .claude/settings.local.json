@@ -4,7 +4,8 @@
       "Bash(python:*)",
       "Bash(sed:*)",
       "Bash(grep:*)",
-      "WebFetch(domain:www.audiokinetic.com)"
+      "WebFetch(domain:www.audiokinetic.com)",
+      "WebSearch"
     ]
   }
 }
