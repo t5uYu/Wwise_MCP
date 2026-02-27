@@ -1,0 +1,81 @@
+# Wwise 音频设计知识库
+# 格式：每行一条知识条目，以 # 开头的行为注释
+
+# ============================================================
+# 对象层级关系
+# ============================================================
+Event 是 Wwise 的触发单元，一个 Event 包含一个或多个 Action，每个 Action 引用一个 Target（Sound 或 Container）
+Action 的 ActionType 决定触发行为：Play=1, Stop=2, Pause=3, Resume=4, Break=28, Mute=6, UnMute=7
+Sound SFX 是最基本的音效对象，包含一个或多个 AudioFileSource，每个 AudioFileSource 对应一个音频文件
+Random Sequence Container 可以随机或顺序播放多个子 Sound，适合脚步声、碰撞声等需要变化的音效
+Switch Container 根据 Switch 或 State 的值选择播放不同的子 Sound，适合角色状态切换、武器类型切换等
+Blend Container 将多个 Sound 按权重混合播放，Wwise 2024.1 提供完整 WAAPI 管理支持
+Actor-Mixer 是组织容器，子对象可继承其属性设置，适合批量设置同类音效的公共参数
+
+# ============================================================
+# Bus 路由最佳实践
+# ============================================================
+Master Audio Bus 是所有 Bus 的根节点，最终输出到主设备
+推荐 Bus 分组结构：SFX Bus, Music Bus, Voice Bus, Ambient Bus, UI Bus
+Side Chain 配置：将 Music Bus 作为 Compressor 的 Side Chain 输入，实现音乐闪避（Ducking）效果
+Auxiliary Bus 用于 Reverb 和 Delay 等空间效果，Sound 通过 UseGameDefinedAuxSends 或手动 Send 路由
+OutputBus 属性控制 Sound/Container 输出到哪个 Bus，未设置时继承父节点的 OutputBus
+Attenuation 衰减对象挂载在 Sound 的 Positioning 属性下，控制距离衰减曲线
+
+# ============================================================
+# RTPC 绑定模式
+# ============================================================
+Distance RTPC（距离衰减）：Game Parameter = Distance，绑定到 Volume 属性，曲线使用 Log3（更自然的衰减感）
+Speed RTPC（速度音调）：Game Parameter = Speed，绑定到 Pitch 属性，Linear 曲线，范围 0-100 映射到 -200~+600 音分
+HP_Ratio RTPC（血量滤波）：Game Parameter = HP_Ratio，绑定到 LowPassFilter，InvertedSCurve，血量越低滤波越强
+RPM RTPC（引擎转速）：Game Parameter = RPM，绑定到 Pitch，Log2 曲线，更符合发动机特性
+RTPC 曲线类型选择：线性变化用 Linear，对数感知用 Log1~3（音量感知对数），指数变化用 Exp1~3
+
+# ============================================================
+# SoundBank 策略（Wwise 2024.1）
+# ============================================================
+Auto-Defined SoundBank：2024.1 默认模式，每个 Event 自动管理对应 SoundBank，无需手动 generate
+User-Defined SoundBank：需要精确控制包含哪些资产时使用，如平台特定内容、DLC 分包
+SoundBank 生成命令 ak.wwise.core.soundbank.generate 在 Auto-Defined 场景下通常不需要手动调用
+Init.bnk 是初始化 Bank，始终在游戏启动时加载，包含 Bus 结构和全局设置
+UE5.4 中 Wwise 资产打包进 uasset，通过 WwiseResourceCooker 处理，不再是独立 .bnk 文件
+
+# ============================================================
+# Wwise 2024.1 Breaking Changes
+# ============================================================
+ak.wwise.core.object.setReference 的 platform 参数：2024.1 默认值从 'Any Platform' 改为平台特定，建议明确传入
+AudioPlugin.h 接口已在 2024.1 中移除，所有插件必须迁移到新的 Plugin.h 接口
+SoundBank 节点在 Auto-Defined 模式下可能为空，这是正常行为，不代表 SoundBank 未生成
+Blend Container 的 WAAPI 管理接口（addChild 等）为 2024.1 新增，在旧版本中不可用
+Live Editing 在非 Unity 集成场景下新增多线程支持，WAAPI 并发调用更稳定
+
+# ============================================================
+# UE5.4 + Wwise 集成要点
+# ============================================================
+UE5.4 使用 WwiseIntegration 插件（Audiokinetic 官方维护），项目设置中配置 Wwise 项目路径
+AkComponent 挂载到 Actor，调用 PostEvent 触发 Wwise Event
+AkGameplayStatics 提供静态方法，适合一次性音效（Set RTPC, Post Event 等）
+RTPC 绑定：通过 AkGameplayStatics::SetRTPCValue 在运行时设置 Game Parameter 值
+Wwise Profiler 通过 UDP 连接到运行中的游戏实例，可实时查看声音对象、CPU 占用等
+2024.1 的 Live Editing 通过 Profiler 连接实现，操作 Authoring Tool 的修改实时反映到 UE5.4 中
+
+# ============================================================
+# 常见问题与解决方案
+# ============================================================
+问题：Event 创建后在游戏中无声
+原因1：Action 的 Target 引用为空 → 调用 verify_event_completeness 检查
+原因2：AudioFileSource 没有关联音频文件 → 在 Wwise 界面手动导入音频文件
+原因3：Sound 的 OutputBus 为空或目标 Bus 不存在 → 调用 verify_structure 检查 Bus 路由
+
+问题：RTPC 绑定后参数变化无效果
+原因1：Game Parameter 的 Min/Max 范围设置错误，实际值超出范围被 clamp
+原因2：曲线节点设置不正确，检查曲线编辑器中的控制点
+原因3：绑定的属性名拼写错误，调用 get_object_properties 确认属性名
+
+问题：Wwise 2024.1 中 SoundBank 节点为空
+这是 Auto-Defined SoundBank 的正常行为，SoundBank 由 Wwise 自动管理
+不需要手动创建 Bank，Event 会自动关联对应的 Auto-Defined Bank
+
+问题：WAAPI 连接超时
+检查 Wwise 是否正在运行，端口默认 8080
+在 Wwise > User Settings > WAAPI 中确认 Enable WAAPI 已勾选

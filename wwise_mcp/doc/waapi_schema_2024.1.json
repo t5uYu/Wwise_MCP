@@ -1,0 +1,128 @@
+[
+  {
+    "uri": "ak.wwise.core.getInfo",
+    "description": "Retrieve global Wwise information and settings.",
+    "args_schema": {},
+    "return_schema": {
+      "version": {"displayName": "string", "major": "int", "minor": "int", "build": "int"},
+      "projectName": "string",
+      "projectPath": "string"
+    },
+    "since": "2017.1"
+  },
+  {
+    "uri": "ak.wwise.core.object.get",
+    "description": "Retrieves the list of Wwise objects matching the query. Supports from, where, transform, options.",
+    "args_schema": {
+      "from": "object (required) - Selection source: {path}, {id}, {ofType}, {query}",
+      "where": "array (optional) - Filter conditions",
+      "transform": "array (optional) - Transform pipeline: select, sort, range",
+      "options": {
+        "return": "array of property names to return in results"
+      }
+    },
+    "since": "2017.1"
+  },
+  {
+    "uri": "ak.wwise.core.object.create",
+    "description": "Creates an object of the given type under the given parent.",
+    "args_schema": {
+      "name": "string (required)",
+      "type": "string (required) - Object type e.g. 'Sound SFX', 'Event', 'Bus'",
+      "parent": "object (required) - {path} or {id}",
+      "onNameConflict": "string (required) - 'rename' | 'replace' | 'fail'",
+      "children": "array (optional)",
+      "notes": "string (optional)"
+    },
+    "return_schema": {
+      "id": "GUID string",
+      "name": "string",
+      "path": "string"
+    },
+    "since": "2017.1"
+  },
+  {
+    "uri": "ak.wwise.core.object.delete",
+    "description": "Deletes the specified object.",
+    "args_schema": {
+      "object": "object (required) - {path} or {id}"
+    },
+    "since": "2017.1"
+  },
+  {
+    "uri": "ak.wwise.core.object.move",
+    "description": "Moves the specified object to a new parent.",
+    "args_schema": {
+      "object": "object (required) - {path} or {id}",
+      "parent": "object (required) - {path} or {id}",
+      "onNameConflict": "string (optional) - 'rename' | 'replace' | 'fail'"
+    },
+    "since": "2017.1"
+  },
+  {
+    "uri": "ak.wwise.core.object.setProperty",
+    "description": "Sets a property value for the given object.",
+    "args_schema": {
+      "object": "object (required) - {path} or {id}",
+      "property": "string (required) - Property name e.g. 'Volume', 'Pitch'",
+      "value": "number|string|bool (required)",
+      "platform": "string (optional) - Platform name, defaults to current platform in 2024.1"
+    },
+    "since": "2017.1"
+  },
+  {
+    "uri": "ak.wwise.core.object.setReference",
+    "description": "Sets a reference value for the given object. Used for OutputBus, Target, RTPC bindings.",
+    "args_schema": {
+      "object": "object (required) - {path} or {id}",
+      "reference": "string (required) - Reference name e.g. 'OutputBus', 'Target'",
+      "value": "object (required) - {path} or {id} of target object",
+      "platform": "string (optional) - Note: default changed in 2024.1, recommend explicit value"
+    },
+    "since": "2017.1",
+    "notes": "2024.1 platform parameter default changed. Always specify platform explicitly."
+  },
+  {
+    "uri": "ak.wwise.core.object.getPropertyAndReferenceNames",
+    "description": "Returns the list of property and reference names for the given object type.",
+    "args_schema": {
+      "object": "object (required) - {path} or {id}"
+    },
+    "since": "2019.1"
+  },
+  {
+    "uri": "ak.wwise.core.soundbank.generate",
+    "description": "Generates SoundBanks. In 2024.1 Auto-Defined mode, this is usually not needed.",
+    "args_schema": {
+      "soundbanks": "array (optional) - List of soundbank names",
+      "platforms": "array (optional) - Target platforms",
+      "languages": "array (optional) - Target languages"
+    },
+    "since": "2017.1",
+    "notes": "2024.1: Auto-Defined SoundBanks are automatically managed. Only call when explicitly packaging/releasing."
+  },
+  {
+    "uri": "ak.wwise.core.soundbank.getInclusions",
+    "description": "Returns the objects included in a SoundBank.",
+    "args_schema": {
+      "soundbank": "object (required) - {path} or {id}"
+    },
+    "since": "2017.1"
+  },
+  {
+    "uri": "ak.wwise.ui.getSelectedObjects",
+    "description": "Returns the currently selected objects in the Wwise Authoring UI.",
+    "args_schema": {},
+    "since": "2018.1"
+  },
+  {
+    "uri": "ak.wwise.core.object.addChild",
+    "description": "Adds a child object of the specified type to a Blend Container track. New in 2024.1.",
+    "args_schema": {
+      "object": "object (required) - Parent Blend Container path or id",
+      "type": "string (required) - Child type"
+    },
+    "since": "2024.1",
+    "notes": "New in Wwise 2024.1. Not available in older versions."
+  }
+]
