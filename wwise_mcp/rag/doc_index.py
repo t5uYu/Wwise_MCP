@@ -60,7 +60,7 @@ class WwiseDocIndex:
             "description": "查询 Wwise 对象，支持 from/where/transform/return 灵活组合",
             "required_args": ["from"],
             "optional_args": ["where", "transform", "options"],
-            "return_fields": ["@name", "@type", "@path", "@id", "@childrenCount"],
+            "return_fields": ["name", "type", "path", "id", "childrenCount"],
             "since": "2017.1",
         },
         "ak.wwise.core.object.create": {

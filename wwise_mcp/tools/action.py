@@ -51,9 +51,9 @@ async def create_object(
         # 安全检查：先确认同名对象是否已存在
         existing = await adapter.get_objects(
             from_spec={"path": parent_path},
-            return_fields=["@name", "@path"],
+            return_fields=["name", "path"],
         )
-        existing_names = {obj.get("@name") for obj in existing}
+        existing_names = {obj.get("name") for obj in existing}
         if name in existing_names and on_conflict == "fail":
             return _err_raw(
                 "conflict",
@@ -275,7 +275,7 @@ async def set_rtpc_binding(
         # 验证绑定是否成功
         objects = await adapter.get_objects(
             from_spec={"path": object_path},
-            return_fields=["@name", "@path", property],
+            return_fields=["name", "path", property],
         )
 
         return _ok({
@@ -360,14 +360,14 @@ async def delete_object(object_path: str, force: bool = False) -> dict:
                     "from": {"ofType": ["Action"]},
                     "where": [["Target:name", "=", object_path.split("\\")[-1]]],
                 },
-                {"return": ["@name", "@path", "Target"]},
+                {"return": ["name", "path", "Target"]},
             )
             referencing_actions = search_result.get("return", [])
             if referencing_actions:
                 return _err_raw(
                     "has_references",
                     f"对象 '{object_path}' 被 {len(referencing_actions)} 个 Action 引用，删除可能导致悬空引用",
-                    f"引用该对象的 Action：{[a.get('@path') for a in referencing_actions[:5]]}。"
+                    f"引用该对象的 Action：{[a.get('path') for a in referencing_actions[:5]]}。"
                     f"确认要强制删除请传入 force=True",
                 )
 

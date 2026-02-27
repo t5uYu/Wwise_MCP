@@ -102,10 +102,72 @@ async def _warmup() -> dict:
 
 ---
 
+---
+
+## ~~F-08 连接层协议完全错误~~ ✅ 已修复
+
+用 `waapi-client` 重写了 `connection.py` 和 `adapter.py`，字段名全部去掉 `@` 前缀，经实测验证通过。
+
+---
+
+## ~~F-09 所有 WAAPI 返回字段名带 `@` 前缀错误~~ ✅ 已修复
+
+---
+
+## F-08 连接层协议完全错误（最高优先级）
+
+**文件**：`wwise_mcp/core/connection.py`、`wwise_mcp/core/adapter.py`
+**严重程度**：致命（整个连接层无法工作）
+
+**问题**：Wwise WAAPI 使用 WAMP 协议，不是普通 JSON-RPC WebSocket。当前 `connection.py` 手写的 JSON-RPC 实现与 Wwise 完全不兼容，MCP Server 启动后任何工具调用都会失败。
+
+官方提供 `waapi-client` 库（`pip install waapi-client`）封装了完整的 WAMP 协议，应直接替换。
+
+**正确调用方式（经实测验证）**：
+```python
+from waapi import WaapiClient
+
+with WaapiClient() as client:
+    result = client.call(
+        "ak.wwise.core.object.get",
+        {
+            "from": {"ofType": ["GameParameter"]},
+            "options": {"return": ["name", "path", "id", "type"]},
+        },
+    )
+```
+
+**修复方向**：用 `waapi-client` 重写 `connection.py` 和 `adapter.py`。
+
+---
+
+## F-09 所有 WAAPI 返回字段名带 `@` 前缀错误
+
+**文件**：`wwise_mcp/tools/query.py`、`action.py`、`verify.py`、`rag/context_collector.py`
+**严重程度**：致命（即使连接修好，所有查询结果都会解析失败）
+
+**问题**：代码中大量使用 `"@name"`、`"@path"`、`"@id"`、`"@type"`、`"@childrenCount"` 作为返回字段名和结果解析 key。经实测，Wwise 2024.1 返回的字段名不带 `@` 前缀，是 `name`、`path`、`id`、`type`。
+
+```python
+# 当前错误写法
+return_fields=["@name", "@type", "@path", "@id"]
+obj.get("@name")
+
+# 正确写法
+"options": {"return": ["name", "type", "path", "id"]}
+obj.get("name")
+```
+
+**修复方向**：全局替换所有 `@name`、`@path`、`@id`、`@type`、`@childrenCount`。
+
+---
+
 ## 修复优先级
 
 | 编号 | 问题 | 优先级 |
 |---|---|---|
+| F-08 | 连接层协议错误，需换 `waapi-client` | 致命 |
+| F-09 | 返回字段名 `@` 前缀错误 | 致命 |
 | F-01 | `set_rtpc_binding` WAAPI 调用无效 | 高 |
 | F-02 | `add_effect` 路径错误 | 高 |
 | F-03 | 动态上下文未注入 | 中 |

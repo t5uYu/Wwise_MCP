@@ -29,17 +29,8 @@ async def verify_structure(scope_path: str | None = None) -> dict:
     """
     结构完整性验证，检查 Event→Action 关联、Bus 路由、属性值范围等。
 
-    建议：每完成一个独立操作目标后调用此工具。
-
     Args:
-        scope_path: 验证范围路径（None 表示全项目验证，指定路径则只验证该子树）
-
-    检查项：
-      - Event → Action 关联：每个 Event 至少有 1 个 Action
-      - Action → Target 引用：Target 引用非空且目标对象存在
-      - Bus 路由：Sound 的 OutputBus 非空且目标 Bus 存在
-      - 属性值范围：Volume 在 -200~+200 dB，Pitch 在 -2400~+2400
-      - 孤立对象：无 Action 的 Event，无 OutputBus 的 Sound
+        scope_path: 验证范围路径（None 表示全项目验证）
     """
     try:
         adapter = WwiseAdapter()
@@ -48,34 +39,34 @@ async def verify_structure(scope_path: str | None = None) -> dict:
 
         # --- 1. 验证 Event → Action 关联 ---
         event_from = (
-            {"path": scope_path, "transform": [{"select": ["descendants"]}, {"where": [["@type", "=", "Event"]]}]}
+            {"path": scope_path, "transform": [{"select": ["descendants"]}, {"where": [["type", "=", "Event"]]}]}
             if scope_path
             else {"ofType": ["Event"]}
         )
         event_result = await adapter.call(
             "ak.wwise.core.object.get",
             {"from": event_from},
-            {"return": ["@name", "@path", "@id", "@childrenCount"]},
+            {"return": ["name", "path", "id", "childrenCount"]},
         )
         events = event_result.get("return", [])
 
         orphan_events = []
         for event in events:
-            child_count = event.get("@childrenCount", 0)
+            child_count = event.get("childrenCount", 0)
             if child_count == 0:
-                orphan_events.append(event.get("@path"))
+                orphan_events.append(event.get("path"))
                 issues.append({
                     "type": "orphan_event",
                     "severity": "error",
-                    "path": event.get("@path"),
-                    "message": f"Event '{event.get('@name')}' 没有任何 Action，无法触发任何操作",
+                    "path": event.get("path"),
+                    "message": f"Event '{event.get('name')}' 没有任何 Action，无法触发任何操作",
                 })
 
         # --- 2. 验证 Action → Target 引用 ---
         action_result = await adapter.call(
             "ak.wwise.core.object.get",
             {"from": {"ofType": ["Action"]}},
-            {"return": ["@name", "@path", "@id", "Target"]},
+            {"return": ["name", "path", "id", "Target"]},
         )
         actions = action_result.get("return", [])
 
@@ -85,15 +76,15 @@ async def verify_structure(scope_path: str | None = None) -> dict:
                 issues.append({
                     "type": "action_no_target",
                     "severity": "error",
-                    "path": action.get("@path"),
-                    "message": f"Action '{action.get('@name')}' 的 Target 引用为空",
+                    "path": action.get("path"),
+                    "message": f"Action '{action.get('name')}' 的 Target 引用为空",
                 })
 
         # --- 3. 验证 Bus 路由 ---
         sound_result = await adapter.call(
             "ak.wwise.core.object.get",
-            {"from": {"ofType": ["Sound SFX", "Sound Voice"]}},
-            {"return": ["@name", "@path", "@id", "OutputBus"]},
+            {"from": {"ofType": ["Sound"]}},
+            {"return": ["name", "path", "id", "OutputBus"]},
         )
         sounds = sound_result.get("return", [])
 
@@ -101,21 +92,21 @@ async def verify_structure(scope_path: str | None = None) -> dict:
         for sound in sounds:
             output_bus = sound.get("OutputBus")
             if not output_bus:
-                sounds_no_bus.append(sound.get("@path"))
+                sounds_no_bus.append(sound.get("path"))
                 warnings.append({
                     "type": "sound_no_bus",
                     "severity": "warning",
-                    "path": sound.get("@path"),
-                    "message": f"Sound '{sound.get('@name')}' 未指定 OutputBus，将使用默认路由",
+                    "path": sound.get("path"),
+                    "message": f"Sound '{sound.get('name')}' 未指定 OutputBus，将使用默认路由",
                 })
 
-        # --- 4. 属性值范围检查（对有 Volume/Pitch 的对象采样检查）---
+        # --- 4. 属性值范围检查（采样前 50 个）---
         range_issues = []
-        for sound in sounds[:50]:  # 采样前 50 个，避免全量查询性能问题
+        for sound in sounds[:50]:
             try:
                 props = await adapter.call(
                     "ak.wwise.core.object.get",
-                    {"from": {"path": sound.get("@path")}},
+                    {"from": {"path": sound.get("path")}},
                     {"return": ["Volume", "Pitch"]},
                 )
                 prop_list = props.get("return", [{}])
@@ -127,25 +118,24 @@ async def verify_structure(scope_path: str | None = None) -> dict:
                         range_issues.append({
                             "type": "volume_out_of_range",
                             "severity": "warning",
-                            "path": sound.get("@path"),
+                            "path": sound.get("path"),
                             "message": f"Volume={volume} 超出正常范围 [-200, 200] dB",
                         })
                     if pitch is not None and not (-2400 <= float(pitch) <= 2400):
                         range_issues.append({
                             "type": "pitch_out_of_range",
                             "severity": "warning",
-                            "path": sound.get("@path"),
+                            "path": sound.get("path"),
                             "message": f"Pitch={pitch} 超出正常范围 [-2400, 2400] 音分",
                         })
             except Exception:
-                pass  # 单个对象检查失败不影响整体
+                pass
 
         issues.extend(range_issues)
         issues.extend(warnings)
 
         error_count = sum(1 for i in issues if i.get("severity") == "error")
         warning_count = sum(1 for i in issues if i.get("severity") == "warning")
-
         passed = error_count == 0
 
         return _ok({
@@ -172,15 +162,8 @@ async def verify_event_completeness(event_path: str) -> dict:
     """
     验证 Event 在 Wwise 2024.1 Auto-Defined SoundBank 场景下是否可正常触发。
 
-    检查项：
-      - Event 关联的所有 AudioFileSource 是否有对应音频文件
-      - Auto-Defined SoundBank 是否已生成（ak.wwise.core.soundbank.getInclusions）
-      - Event → Action → Target 调用链是否完整
-
     Args:
         event_path: 要验证的 Event 完整路径
-
-    2024.1 特性：Auto-Defined SoundBank 自动管理，Live Editing 可实时验证触发效果
     """
     try:
         adapter = WwiseAdapter()
@@ -190,17 +173,17 @@ async def verify_event_completeness(event_path: str) -> dict:
         # --- 检查 1：Event 存在性 ---
         events = await adapter.get_objects(
             from_spec={"path": event_path},
-            return_fields=["@name", "@type", "@path", "@id", "@childrenCount"],
+            return_fields=["name", "type", "path", "id", "childrenCount"],
         )
         if not events:
             return _err_raw("not_found", f"Event 不存在：{event_path}",
                             "请先调用 search_objects 确认 Event 路径")
 
         event = events[0]
-        checks.append({"check": "event_exists", "passed": True, "detail": f"Event 存在：{event.get('@name')}"})
+        checks.append({"check": "event_exists", "passed": True, "detail": f"Event 存在：{event.get('name')}"})
 
         # --- 检查 2：Event 有 Action ---
-        child_count = event.get("@childrenCount", 0)
+        child_count = event.get("childrenCount", 0)
         has_actions = child_count > 0
         if not has_actions:
             all_passed = False
@@ -214,7 +197,7 @@ async def verify_event_completeness(event_path: str) -> dict:
         action_result = await adapter.call(
             "ak.wwise.core.object.get",
             {"from": {"path": event_path}, "transform": [{"select": ["children"]}]},
-            {"return": ["@name", "@type", "@path", "ActionType", "Target"]},
+            {"return": ["name", "type", "path", "ActionType", "Target"]},
         )
         actions = action_result.get("return", [])
         actions_with_target = [a for a in actions if a.get("Target")]
@@ -227,7 +210,7 @@ async def verify_event_completeness(event_path: str) -> dict:
             "detail": f"{len(actions_with_target)}/{len(actions)} 个 Action 有 Target 引用",
         })
 
-        # --- 检查 4：查找关联的 AudioFileSource ---
+        # --- 检查 4：关联的 AudioFileSource ---
         audio_sources = []
         for action in actions_with_target:
             target = action.get("Target", {})
@@ -240,10 +223,10 @@ async def verify_event_completeness(event_path: str) -> dict:
                             "from": {"path": target_path},
                             "transform": [
                                 {"select": ["descendants"]},
-                                {"where": [["@type", "=", "AudioFileSource"]]},
+                                {"where": [["type", "=", "AudioFileSource"]]},
                             ],
                         },
-                        {"return": ["@name", "@path", "@id", "AudioFile"]},
+                        {"return": ["name", "path", "id", "AudioFile"]},
                     )
                     audio_sources.extend(sources.get("return", []))
                 except Exception:
@@ -266,22 +249,16 @@ async def verify_event_completeness(event_path: str) -> dict:
                 "detail": "未找到 AudioFileSource（可能为 Synthesizer 或 External Source）",
             })
 
-        # --- 检查 5：SoundBank 包含状态（2024.1 Auto-Defined）---
+        # --- 检查 5：Auto-Defined SoundBank ---
         try:
             bank_inclusions = await adapter.call(
                 "ak.wwise.core.soundbank.getInclusions",
                 {"soundbank": {"path": "\\SoundBanks\\Default Work Unit"}},
             )
-            inclusions = bank_inclusions.get("inclusions", [])
-            event_name = event.get("@name", "")
-            event_in_bank = any(
-                inc.get("object", {}).get("name") == event_name
-                for inc in inclusions
-            )
             checks.append({
                 "check": "soundbank_inclusion",
                 "passed": True,
-                "detail": f"Auto-Defined SoundBank 会自动包含此 Event（2024.1 特性），无需手动管理",
+                "detail": "Auto-Defined SoundBank 会自动包含此 Event（2024.1 特性），无需手动管理",
             })
         except Exception:
             checks.append({

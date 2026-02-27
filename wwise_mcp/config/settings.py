@@ -28,7 +28,7 @@ class WwiseSettings:
 
     @property
     def waapi_url(self) -> str:
-        return f"ws://{self.host}:{self.port}/waapi/"
+        return f"ws://{self.host}:{self.port}/waapi"
 
 
 # 全局单例配置，可在 server.py 启动时通过环境变量覆盖

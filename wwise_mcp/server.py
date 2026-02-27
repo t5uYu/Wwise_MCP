@@ -67,12 +67,6 @@ mcp = FastMCP(
 # 生命周期：建立 WAAPI 连接
 # ------------------------------------------------------------------
 
-@mcp.tool()
-async def _warmup() -> dict:
-    """内部工具：在第一次调用时确保 WAAPI 连接已建立（懒初始化）"""
-    pass
-
-
 # 在 server 启动时初始化连接
 _connection_initialized = False
 

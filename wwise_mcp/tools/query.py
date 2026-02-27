@@ -10,7 +10,6 @@ from ..core.exceptions import WwiseMCPError
 
 logger = logging.getLogger("wwise_mcp.tools.query")
 
-# ---------- 统一结果包装 ----------
 
 def _ok(data: Any) -> dict:
     return {"success": True, "data": data, "error": None}
@@ -26,31 +25,28 @@ def _err_raw(code: str, message: str, suggestion: str | None = None) -> dict:
     }
 
 
-# ---------- 工具实现 ----------
-
 async def get_project_hierarchy() -> dict:
     """
     获取 Wwise 项目顶层结构概览。
-
-    返回各主要层级（Actor-Mixer、Master-Mixer、Events、SoundBanks 等）的对象数量。
+    返回各主要层级的对象数量和类型。
     2024.1 注意：Auto-Defined SoundBank 场景下 SoundBanks 节点可能为空，属正常行为。
     """
     try:
         adapter = WwiseAdapter()
-        # 查询项目根节点下一层所有容器
         root_children = await adapter.get_objects(
             from_spec={"path": "\\"},
-            return_fields=["@name", "@type", "@childrenCount", "@path"],
+            return_fields=["name", "type", "childrenCount", "path"],
         )
 
         summary: dict[str, Any] = {}
         for obj in root_children:
-            name = obj.get("@name", "")
-            count = obj.get("@childrenCount", 0)
-            obj_type = obj.get("@type", "")
-            summary[name] = {"type": obj_type, "childrenCount": count, "path": obj.get("@path", "")}
+            name = obj.get("name", "")
+            summary[name] = {
+                "type": obj.get("type", ""),
+                "childrenCount": obj.get("childrenCount", 0),
+                "path": obj.get("path", ""),
+            }
 
-        # 补充 Wwise 版本信息
         info = await adapter.get_info()
         return _ok({
             "wwise_version": info.get("version", {}).get("displayName", "Unknown"),
@@ -69,16 +65,12 @@ async def get_object_properties(object_path: str, page: int = 1, page_size: int 
 
     Args:
         object_path: WAAPI 路径格式，如 '\\Actor-Mixer Hierarchy\\Default Work Unit\\MySFX'
-        page:        分页页码（从 1 开始），属性超过 page_size 时自动分页
+        page:        分页页码（从 1 开始）
         page_size:   每页返回属性数量，默认 30
-
-    Returns:
-        对象基础信息 + 属性字典，超出 page_size 时附带分页信息
     """
     try:
         adapter = WwiseAdapter()
-        # 查询基础信息
-        basic_fields = ["@name", "@type", "@path", "@id", "@shortId", "@notes"]
+        basic_fields = ["name", "type", "path", "id", "shortId", "notes"]
         key_props = [
             "Volume", "Pitch", "LowPassFilter", "HighPassFilter",
             "OutputBus", "OutputBusVolume", "OutputBusMixerGain",
@@ -97,12 +89,11 @@ async def get_object_properties(object_path: str, page: int = 1, page_size: int 
             return _err_raw(
                 "not_found",
                 f"对象不存在：{object_path}",
-                f"请先调用 search_objects 搜索正确路径",
+                "请先调用 search_objects 搜索正确路径",
             )
 
         obj = objects[0]
 
-        # 获取完整属性和引用名称列表
         try:
             prop_result = await adapter.call(
                 "ak.wwise.core.object.getPropertyAndReferenceNames",
@@ -112,7 +103,6 @@ async def get_object_properties(object_path: str, page: int = 1, page_size: int 
         except Exception:
             all_props = []
 
-        # 分页
         total = len(all_props)
         start = (page - 1) * page_size
         end = start + page_size
@@ -144,38 +134,30 @@ async def search_objects(
 
     Args:
         query:       搜索关键词（对象名称模糊匹配）
-        type_filter: 可选类型过滤，如 'Sound SFX', 'Event', 'Bus', 'GameParameter' 等
+        type_filter: 可选类型过滤，如 'Sound', 'Event', 'Bus', 'GameParameter' 等
         max_results: 最多返回结果数，默认 20
-
-    Returns:
-        匹配对象列表，按路径排序
     """
     try:
         adapter = WwiseAdapter()
 
-        where_clause: list = [["@name", "contains", query]]
-        if type_filter:
-            where_clause.append(["@type", "=", type_filter])
-
         args: dict[str, Any] = {
-            "from": {"ofType": ["Sound SFX", "Sound Voice", "Event", "Bus",
-                                "GameParameter", "Effect", "State", "Switch",
-                                "MusicSegment", "MusicTrack", "BlendContainer",
-                                "RandomSequenceContainer", "SwitchContainer"]
-                     if not type_filter else [type_filter]},
-            "where": [["@name", "contains", query]],
-            "transform": [{"select": ["this"]}],
+            "from": {
+                "ofType": [type_filter] if type_filter else [
+                    "Sound", "Event", "Bus", "AuxBus",
+                    "GameParameter", "ActorMixer", "BlendContainer",
+                    "RandomSequenceContainer", "SwitchContainer",
+                ]
+            },
+            "where": [["name", "contains", query]],
         }
 
         result = await adapter.call(
             "ak.wwise.core.object.get",
             args,
-            {"return": ["@name", "@type", "@path", "@id"]},
+            {"return": ["name", "type", "path", "id"]},
         )
         objects = result.get("return", [])
-
-        # 按路径排序，截断到 max_results
-        objects.sort(key=lambda x: x.get("@path", ""))
+        objects.sort(key=lambda x: x.get("path", ""))
         objects = objects[:max_results]
 
         return _ok({
@@ -193,9 +175,6 @@ async def search_objects(
 async def get_bus_topology() -> dict:
     """
     获取 Master-Mixer Hierarchy 中所有 Bus 的拓扑结构。
-
-    返回 Bus 树，包含每个 Bus 的名称、类型、父子关系。
-    用于理解当前项目的混音路由架构。
     """
     try:
         adapter = WwiseAdapter()
@@ -203,13 +182,13 @@ async def get_bus_topology() -> dict:
             "from": {"path": "\\Master-Mixer Hierarchy"},
             "transform": [
                 {"select": ["descendants"]},
-                {"where": [["@type", "=", "Bus"]]},
+                {"where": [["type", "=", "Bus"]]},
             ],
         }
         result = await adapter.call(
             "ak.wwise.core.object.get",
             args,
-            {"return": ["@name", "@type", "@path", "@id", "@childrenCount"]},
+            {"return": ["name", "type", "path", "id", "childrenCount"]},
         )
         buses = result.get("return", [])
 
@@ -229,23 +208,18 @@ async def get_event_actions(event_path: str) -> dict:
 
     Args:
         event_path: Event 对象的完整 WAAPI 路径
-
-    Returns:
-        Event 基础信息 + Action 列表（含每个 Action 的类型和 Target 引用）
     """
     try:
         adapter = WwiseAdapter()
 
-        # 获取 Event 自身信息
         events = await adapter.get_objects(
             from_spec={"path": event_path},
-            return_fields=["@name", "@type", "@path", "@id"],
+            return_fields=["name", "type", "path", "id"],
         )
         if not events:
             return _err_raw("not_found", f"Event 不存在：{event_path}",
                             "请先调用 search_objects 搜索 Event 的正确路径")
 
-        # 获取 Event 下的 Action 子节点
         args = {
             "from": {"path": event_path},
             "transform": [{"select": ["children"]}],
@@ -253,7 +227,7 @@ async def get_event_actions(event_path: str) -> dict:
         result = await adapter.call(
             "ak.wwise.core.object.get",
             args,
-            {"return": ["@name", "@type", "@path", "@id", "ActionType", "Target"]},
+            {"return": ["name", "type", "path", "id", "ActionType", "Target"]},
         )
         actions = result.get("return", [])
 
@@ -274,16 +248,12 @@ async def get_soundbank_info(soundbank_name: str | None = None) -> dict:
 
     Args:
         soundbank_name: 指定 SoundBank 名称；为 None 时返回所有 SoundBank 概览。
-
-    2024.1 注意：Auto-Defined SoundBank 默认开启，User-Defined SoundBank 需手动创建。
     """
     try:
         adapter = WwiseAdapter()
 
         if soundbank_name:
-            args = {
-                "from": {"path": f"\\SoundBanks\\{soundbank_name}"},
-            }
+            args = {"from": {"path": f"\\SoundBanks\\{soundbank_name}"}}
         else:
             args = {
                 "from": {"path": "\\SoundBanks"},
@@ -293,11 +263,10 @@ async def get_soundbank_info(soundbank_name: str | None = None) -> dict:
         result = await adapter.call(
             "ak.wwise.core.object.get",
             args,
-            {"return": ["@name", "@type", "@path", "@id"]},
+            {"return": ["name", "type", "path", "id"]},
         )
         banks = result.get("return", [])
 
-        # 获取 Auto-Defined SoundBank 配置状态
         try:
             project_info = await adapter.get_info()
             auto_soundbank = project_info.get("projectSettings", {}).get("autoSoundBank", True)
@@ -322,22 +291,16 @@ async def get_rtpc_list(max_results: int = 50) -> dict:
 
     Args:
         max_results: 最多返回数量，默认 50
-
-    Returns:
-        RTPC（Game Parameter）列表，含名称、路径、默认值范围
     """
     try:
         adapter = WwiseAdapter()
-        args = {
-            "from": {"ofType": ["GameParameter"]},
-        }
         result = await adapter.call(
             "ak.wwise.core.object.get",
-            args,
-            {"return": ["@name", "@type", "@path", "@id", "Min", "Max", "InitialValue"]},
+            {"from": {"ofType": ["GameParameter"]}},
+            {"return": ["name", "type", "path", "id", "Min", "Max", "InitialValue"]},
         )
         rtpcs = result.get("return", [])
-        rtpcs.sort(key=lambda x: x.get("@path", ""))
+        rtpcs.sort(key=lambda x: x.get("path", ""))
         rtpcs = rtpcs[:max_results]
 
         return _ok({

@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python:*)",
+      "Bash(sed:*)",
+      "Bash(grep:*)",
+      "WebFetch(domain:www.audiokinetic.com)"
+    ]
+  }
+}

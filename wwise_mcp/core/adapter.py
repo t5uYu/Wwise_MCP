@@ -4,14 +4,13 @@ WwiseAdapter：Layer 1 — WAAPI Host Adapter
 """
 
 import logging
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 
 from .connection import WwiseConnection
 from .exceptions import WwiseAPIError, WwiseConnectionError
 
 logger = logging.getLogger("wwise_mcp.adapter")
 
-# 全局共享连接实例（在 server.py 的 lifespan 中初始化）
 _connection: Optional[WwiseConnection] = None
 
 
@@ -32,7 +31,12 @@ def init_connection() -> WwiseConnection:
 class WwiseAdapter:
     """
     WAAPI 调用封装。
-    每个工具函数通过此类访问 Wwise，不直接操作 WebSocket。
+    每个工具函数通过此类访问 Wwise，不直接操作底层连接。
+
+    调用约定：
+      - args: WAAPI arguments 字典（from/name/type 等业务参数）
+      - opts: WAAPI options 字典（return 字段等），内部合并为 {"options": opts}
+      - 返回字段名不带 @ 前缀（name/path/id/type/childrenCount 等）
     """
 
     def __init__(self, connection: Optional[WwiseConnection] = None):
@@ -44,45 +48,18 @@ class WwiseAdapter:
 
     async def call(self, uri: str, args: dict = {}, opts: dict = {}) -> dict:
         """
-        执行 WAAPI JSON-RPC 调用。
+        执行 WAAPI 调用。
 
         Args:
             uri:  WAAPI 函数 URI，如 'ak.wwise.core.object.get'
-            args: 业务参数（对应 WAAPI 的 arguments 字段）
-            opts: 返回字段控制（对应 WAAPI 的 options 字段）
-
-        Returns:
-            WAAPI 返回的 result 字典
-
-        Raises:
-            WwiseAPIError: Wwise 返回了业务错误
-            WwiseConnectionError: 连接不可用
-            WwiseTimeoutError: 请求超时
+            args: 业务参数字典
+            opts: 返回字段控制，如 {"return": ["name", "path"]}
+                  内部会合并为 {**args, "options": opts} 传给 waapi-client
         """
-        try:
-            result = await self._conn.call(uri, args, opts)
-            return result
-        except WwiseAPIError:
-            raise
-        except Exception as e:
-            # 将原始 WebSocket/asyncio 异常转为 WwiseAPIError
-            error_msg = str(e)
-            if "not found" in error_msg.lower() or "does not exist" in error_msg.lower():
-                raise WwiseAPIError(error_msg)
-            raise WwiseAPIError(f"WAAPI 调用 '{uri}' 失败：{error_msg}")
-
-    async def subscribe(self, uri: str, callback: Callable) -> int:
-        """
-        订阅 WAAPI 事件通知。
-
-        Returns:
-            subscription_id，用于后续 unsubscribe
-        """
-        return await self._conn.subscribe(uri, callback)
-
-    async def unsubscribe(self, subscription_id: int) -> None:
-        """取消订阅"""
-        await self._conn.unsubscribe(subscription_id)
+        payload = dict(args)
+        if opts:
+            payload["options"] = opts
+        return await self._conn.call(uri, payload)
 
     # ------------------------------------------------------------------
     # 便利方法：常用 WAAPI 调用的高级封装
@@ -103,21 +80,21 @@ class WwiseAdapter:
 
         Args:
             from_spec:     WAAPI from 选择器，如 {"path": "\\Actor-Mixer Hierarchy"}
-            return_fields: 需要返回的字段列表，如 ["@name", "@type", "@path"]
+            return_fields: 返回字段列表，不带 @ 前缀，如 ["name", "type", "path", "id"]
             transform:     WAAPI transform 管线（排序、过滤等）
-
-        Returns:
-            对象列表
         """
         if return_fields is None:
-            return_fields = ["@name", "@type", "@path", "@id"]
+            return_fields = ["name", "type", "path", "id"]
 
         args: dict[str, Any] = {"from": from_spec}
         if transform:
             args["transform"] = transform
 
-        opts = {"return": return_fields}
-        result = await self.call("ak.wwise.core.object.get", args, opts)
+        result = await self.call(
+            "ak.wwise.core.object.get",
+            args,
+            {"return": return_fields},
+        )
         return result.get("return", [])
 
     async def create_object(
@@ -133,23 +110,21 @@ class WwiseAdapter:
         args: dict[str, Any] = {
             "name": name,
             "type": obj_type,
-            "parent": {"path": parent_path},
+            "parent": parent_path,
             "onNameConflict": on_conflict,
         }
         if children:
             args["children"] = children
         if notes:
             args["notes"] = notes
-
-        result = await self.call("ak.wwise.core.object.create", args)
-        return result
+        return await self.call("ak.wwise.core.object.create", args)
 
     async def set_property(
         self, object_path: str, prop: str, value: Any, platform: str | None = None
     ) -> dict:
         """设置对象属性（数值/布尔类属性）"""
         args: dict[str, Any] = {
-            "object": {"path": object_path},
+            "object": object_path,
             "property": prop,
             "value": value,
         }
@@ -160,11 +135,11 @@ class WwiseAdapter:
     async def set_reference(
         self, object_path: str, reference: str, value_path: str, platform: str | None = None
     ) -> dict:
-        """设置对象引用（OutputBus、Effect 等引用类属性）"""
+        """设置对象引用（OutputBus、Target 等引用类属性）"""
         args: dict[str, Any] = {
-            "object": {"path": object_path},
+            "object": object_path,
             "reference": reference,
-            "value": {"path": value_path},
+            "value": value_path,
         }
         if platform:
             args["platform"] = platform
@@ -174,7 +149,7 @@ class WwiseAdapter:
         """删除对象"""
         return await self.call(
             "ak.wwise.core.object.delete",
-            {"object": {"path": object_path}},
+            {"object": object_path},
         )
 
     async def move_object(self, object_path: str, new_parent_path: str) -> dict:
@@ -182,8 +157,8 @@ class WwiseAdapter:
         return await self.call(
             "ak.wwise.core.object.move",
             {
-                "object": {"path": object_path},
-                "parent": {"path": new_parent_path},
+                "object": object_path,
+                "parent": new_parent_path,
                 "onNameConflict": "rename",
             },
         )
@@ -193,6 +168,6 @@ class WwiseAdapter:
         result = await self.call(
             "ak.wwise.ui.getSelectedObjects",
             {},
-            {"return": ["@name", "@type", "@path", "@id"]},
+            {"return": ["name", "type", "path", "id"]},
         )
         return result.get("objects", [])

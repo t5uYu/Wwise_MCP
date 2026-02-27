@@ -110,13 +110,13 @@ class WwiseRAG:
         try:
             objects = await adapter.get_objects(
                 from_spec={"path": "\\Actor-Mixer Hierarchy"},
-                return_fields=["@name", "@type", "@childrenCount", "@path"],
+                return_fields=["name", "type", "childrenCount", "path"],
             )
             # 取前两层
             lines = ["[Actor-Mixer 层级概览]"]
             for obj in objects[:30]:
-                lines.append(f"  {obj.get('@type', '')}：{obj.get('@name', '')} "
-                             f"（{obj.get('@childrenCount', 0)} 个子对象）")
+                lines.append(f"  {obj.get('type', '')}：{obj.get('name', '')} "
+                             f"（{obj.get('childrenCount', 0)} 个子对象）")
             if len(objects) > 30:
                 lines.append(f"  ... 共 {len(objects)} 个对象")
             return "\n".join(lines)
@@ -132,14 +132,14 @@ class WwiseRAG:
                     "from": {"path": "\\Master-Mixer Hierarchy"},
                     "transform": [{"select": ["descendants"]}],
                 },
-                {"return": ["@name", "@type", "@path", "@childrenCount"]},
+                {"return": ["name", "type", "path", "childrenCount"]},
             )
             buses = result.get("return", [])
             lines = [f"[Master-Mixer Bus 拓扑] 共 {len(buses)} 个节点"]
             for bus in buses[:20]:
-                depth = bus.get("@path", "").count("\\") - 2
+                depth = bus.get("path", "").count("\\") - 2
                 indent = "  " * depth
-                lines.append(f"{indent}{bus.get('@type', '')}: {bus.get('@name', '')}")
+                lines.append(f"{indent}{bus.get('type', '')}: {bus.get('name', '')}")
             return "\n".join(lines)
         except Exception as e:
             return f"[Bus 拓扑] 获取失败：{e}"
@@ -152,7 +152,7 @@ class WwiseRAG:
                 return "[当前选中对象] 无"
             lines = ["[当前选中对象]"]
             for obj in objects:
-                lines.append(f"  {obj.get('@type')}: {obj.get('@name')} — {obj.get('@path')}")
+                lines.append(f"  {obj.get('type')}: {obj.get('name')} — {obj.get('path')}")
             return "\n".join(lines)
         except Exception as e:
             return f"[当前选中对象] 获取失败：{e}"
@@ -163,13 +163,13 @@ class WwiseRAG:
             result = await adapter.call(
                 "ak.wwise.core.object.get",
                 {"from": {"ofType": ["Event"]}},
-                {"return": ["@name", "@path", "@childrenCount"]},
+                {"return": ["name", "path", "childrenCount"]},
             )
             events = result.get("return", [])
             lines = [f"[Event 列表] 共 {len(events)} 个 Event"]
             for ev in events[:30]:
-                action_count = ev.get("@childrenCount", 0)
-                lines.append(f"  {ev.get('@name')} （{action_count} 个 Action）")
+                action_count = ev.get("childrenCount", 0)
+                lines.append(f"  {ev.get('name')} （{action_count} 个 Action）")
             if len(events) > 30:
                 lines.append(f"  ... 还有 {len(events) - 30} 个")
             return "\n".join(lines)
@@ -182,12 +182,12 @@ class WwiseRAG:
             result = await adapter.call(
                 "ak.wwise.core.object.get",
                 {"from": {"ofType": ["GameParameter"]}},
-                {"return": ["@name", "@path", "Min", "Max", "InitialValue"]},
+                {"return": ["name", "path", "Min", "Max", "InitialValue"]},
             )
             rtpcs = result.get("return", [])
             lines = [f"[Game Parameter 列表] 共 {len(rtpcs)} 个"]
             for rtpc in rtpcs[:20]:
-                lines.append(f"  {rtpc.get('@name')} "
+                lines.append(f"  {rtpc.get('name')} "
                              f"[{rtpc.get('Min', 0)}, {rtpc.get('Max', 100)}] "
                              f"默认={rtpc.get('InitialValue', 0)}")
             return "\n".join(lines)
@@ -200,12 +200,12 @@ class WwiseRAG:
             result = await adapter.call(
                 "ak.wwise.core.object.get",
                 {"from": {"path": "\\SoundBanks"}, "transform": [{"select": ["children"]}]},
-                {"return": ["@name", "@type", "@path"]},
+                {"return": ["name", "type", "path"]},
             )
             banks = result.get("return", [])
             lines = [f"[SoundBank] 共 {len(banks)} 个（Wwise 2024.1 Auto-Defined 模式，无需手动管理）"]
             for bank in banks[:10]:
-                lines.append(f"  {bank.get('@name')}")
+                lines.append(f"  {bank.get('name')}")
             return "\n".join(lines)
         except Exception as e:
             return f"[SoundBank] 获取失败：{e}"
