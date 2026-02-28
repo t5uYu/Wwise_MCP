@@ -79,7 +79,7 @@ class WwiseAdapter:
         通用对象查询。
 
         Args:
-            from_spec:     WAAPI from 选择器，如 {"path": "\\Actor-Mixer Hierarchy"}
+            from_spec:     WAAPI from 选择器，如 {"path": ["\\Actor-Mixer Hierarchy"]} 或 {"ofType": ["Sound"]}
             return_fields: 返回字段列表，不带 @ 前缀，如 ["name", "type", "path", "id"]
             transform:     WAAPI transform 管线（排序、过滤等）
         """
@@ -117,7 +117,21 @@ class WwiseAdapter:
             args["children"] = children
         if notes:
             args["notes"] = notes
-        return await self.call("ak.wwise.core.object.create", args)
+        result = await self.call("ak.wwise.core.object.create", args)
+        # object.create 不支持 options.return，不返回 path；
+        # 用返回的 id 额外查一次以获取 path（FIXES_3 已记录此限制）
+        obj_id = result.get("id") if result else None
+        if obj_id:
+            try:
+                objs = await self.get_objects(
+                    from_spec={"id": [obj_id]},
+                    return_fields=["name", "path", "type"],
+                )
+                if objs:
+                    result = {**result, "path": objs[0].get("path"), "name": objs[0].get("name")}
+            except Exception:
+                pass
+        return result
 
     async def set_property(
         self, object_path: str, prop: str, value: Any, platform: str | None = None

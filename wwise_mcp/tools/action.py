@@ -49,10 +49,11 @@ async def create_object(
     try:
         adapter = WwiseAdapter()
 
-        # 安全检查：先确认同名对象是否已存在
+        # 安全检查：查询父节点的直接子对象，确认同名对象是否已存在
         existing = await adapter.get_objects(
-            from_spec={"path": parent_path},
+            from_spec={"path": [parent_path]},
             return_fields=["name", "path"],
+            transform=[{"select": ["children"]}],
         )
         existing_names = {obj.get("name") for obj in existing}
         if name in existing_names and on_conflict == "fail":
@@ -233,6 +234,8 @@ async def assign_bus(object_path: str, bus_path: str) -> dict:
     """
     try:
         adapter = WwiseAdapter()
+        # Wwise 要求先启用 OverrideOutput，才能对 Sound/Container 设置 OutputBus
+        await adapter.set_property(object_path, "OverrideOutput", True)
         await adapter.set_reference(object_path, "OutputBus", bus_path)
         return _ok({
             "object_path": object_path,
@@ -319,15 +322,18 @@ async def delete_object(object_path: str, force: bool = False) -> dict:
 
         if not force:
             # 检查是否有 Action 引用此对象
+            # 注意：WAAPI 2024.1 不支持顶层 where 参数，需客户端过滤
             search_result = await adapter.call(
                 "ak.wwise.core.object.get",
-                {
-                    "from": {"ofType": ["Action"]},
-                    "where": [["Target:name", "=", object_path.split("\\")[-1]]],
-                },
+                {"from": {"ofType": ["Action"]}},
                 {"return": ["name", "path", "Target"]},
             )
-            referencing_actions = search_result.get("return", [])
+            all_actions = search_result.get("return", []) if search_result else []
+            obj_name = object_path.split("\\")[-1]
+            referencing_actions = [
+                a for a in all_actions
+                if a.get("Target", {}).get("name") == obj_name
+            ]
             if referencing_actions:
                 return _err_raw(
                     "has_references",

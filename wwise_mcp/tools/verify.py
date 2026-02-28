@@ -38,17 +38,22 @@ async def verify_structure(scope_path: str | None = None) -> dict:
         warnings = []
 
         # --- 1. 验证 Event → Action 关联 ---
-        event_from = (
-            {"path": scope_path, "transform": [{"select": ["descendants"]}, {"where": [["type", "=", "Event"]]}]}
-            if scope_path
-            else {"ofType": ["Event"]}
-        )
-        event_result = await adapter.call(
-            "ak.wwise.core.object.get",
-            {"from": event_from},
-            {"return": ["name", "path", "id", "childrenCount"]},
-        )
-        events = event_result.get("return", [])
+        # 注意：WAAPI 2024.1 不支持 transform where；scoped 模式改为获取全部后端过滤
+        if scope_path:
+            event_result = await adapter.call(
+                "ak.wwise.core.object.get",
+                {"from": {"path": [scope_path]}, "transform": [{"select": ["descendants"]}]},
+                {"return": ["name", "path", "id", "childrenCount", "type"]},
+            )
+            all_desc = event_result.get("return", []) if event_result else []
+            events = [o for o in all_desc if o.get("type") == "Event"]
+        else:
+            event_result = await adapter.call(
+                "ak.wwise.core.object.get",
+                {"from": {"ofType": ["Event"]}},
+                {"return": ["name", "path", "id", "childrenCount"]},
+            )
+            events = event_result.get("return", []) if event_result else []
 
         orphan_events = []
         for event in events:
@@ -68,7 +73,7 @@ async def verify_structure(scope_path: str | None = None) -> dict:
             {"from": {"ofType": ["Action"]}},
             {"return": ["name", "path", "id", "Target"]},
         )
-        actions = action_result.get("return", [])
+        actions = action_result.get("return", []) if action_result else []
 
         for action in actions:
             target = action.get("Target")
@@ -86,7 +91,7 @@ async def verify_structure(scope_path: str | None = None) -> dict:
             {"from": {"ofType": ["Sound"]}},
             {"return": ["name", "path", "id", "OutputBus"]},
         )
-        sounds = sound_result.get("return", [])
+        sounds = sound_result.get("return", []) if sound_result else []
 
         sounds_no_bus = []
         for sound in sounds:
@@ -106,7 +111,7 @@ async def verify_structure(scope_path: str | None = None) -> dict:
             try:
                 props = await adapter.call(
                     "ak.wwise.core.object.get",
-                    {"from": {"path": sound.get("path")}},
+                    {"from": {"path": [sound.get("path")]}},
                     {"return": ["Volume", "Pitch"]},
                 )
                 prop_list = props.get("return", [{}])
@@ -172,7 +177,7 @@ async def verify_event_completeness(event_path: str) -> dict:
 
         # --- 检查 1：Event 存在性 ---
         events = await adapter.get_objects(
-            from_spec={"path": event_path},
+            from_spec={"path": [event_path]},
             return_fields=["name", "type", "path", "id", "childrenCount"],
         )
         if not events:
@@ -196,10 +201,10 @@ async def verify_event_completeness(event_path: str) -> dict:
         # --- 检查 3：Action 的 Target 引用完整 ---
         action_result = await adapter.call(
             "ak.wwise.core.object.get",
-            {"from": {"path": event_path}, "transform": [{"select": ["children"]}]},
+            {"from": {"path": [event_path]}, "transform": [{"select": ["children"]}]},
             {"return": ["name", "type", "path", "ActionType", "Target"]},
         )
-        actions = action_result.get("return", [])
+        actions = action_result.get("return", []) if action_result else []
         actions_with_target = [a for a in actions if a.get("Target")]
         target_ok = len(actions_with_target) == len(actions) and len(actions) > 0
         if not target_ok:
@@ -220,15 +225,14 @@ async def verify_event_completeness(event_path: str) -> dict:
                     sources = await adapter.call(
                         "ak.wwise.core.object.get",
                         {
-                            "from": {"path": target_path},
-                            "transform": [
-                                {"select": ["descendants"]},
-                                {"where": [["type", "=", "AudioFileSource"]]},
-                            ],
+                            "from": {"path": [target_path]},
+                            "transform": [{"select": ["descendants"]}],
+                            # 注意：transform where 不支持，客户端过滤 AudioFileSource
                         },
-                        {"return": ["name", "path", "id", "AudioFile"]},
+                        {"return": ["name", "path", "id", "type", "AudioFile"]},
                     )
-                    audio_sources.extend(sources.get("return", []))
+                    all_src = sources.get("return", []) if sources else []
+                    audio_sources.extend(o for o in all_src if o.get("type") == "AudioFileSource")
                 except Exception:
                     pass
 
@@ -253,7 +257,7 @@ async def verify_event_completeness(event_path: str) -> dict:
         try:
             bank_inclusions = await adapter.call(
                 "ak.wwise.core.soundbank.getInclusions",
-                {"soundbank": {"path": "\\SoundBanks\\Default Work Unit"}},
+                {"soundbank": "\\SoundBanks\\Default Work Unit"},
             )
             checks.append({
                 "check": "soundbank_inclusion",

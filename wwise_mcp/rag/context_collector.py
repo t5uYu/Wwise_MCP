@@ -100,7 +100,12 @@ class WwiseRAG:
         try:
             info = await adapter.get_info()
             version = info.get("version", {}).get("displayName", "Unknown")
-            project = info.get("projectName", "Unknown")
+            # getInfo 不含 projectName，需额外查询根路径对象的 name 字段（F-15）
+            root = await adapter.get_objects(
+                from_spec={"path": ["\\"]},
+                return_fields=["name"],
+            )
+            project = root[0].get("name", "Unknown") if root else "Unknown"
             return f"[项目信息] 名称：{project}，Wwise 版本：{version}"
         except Exception:
             return "[项目信息] 无法获取（Wwise 可能未运行）"
@@ -109,8 +114,9 @@ class WwiseRAG:
         """~300-500 tokens：Actor-Mixer 层级（depth=2）"""
         try:
             objects = await adapter.get_objects(
-                from_spec={"path": "\\Actor-Mixer Hierarchy"},
+                from_spec={"path": ["\\Actor-Mixer Hierarchy"]},
                 return_fields=["name", "type", "childrenCount", "path"],
+                transform=[{"select": ["children"]}],
             )
             # 取前两层
             lines = ["[Actor-Mixer 层级概览]"]
@@ -129,12 +135,12 @@ class WwiseRAG:
             result = await adapter.call(
                 "ak.wwise.core.object.get",
                 {
-                    "from": {"path": "\\Master-Mixer Hierarchy"},
+                    "from": {"path": ["\\Master-Mixer Hierarchy"]},
                     "transform": [{"select": ["descendants"]}],
                 },
                 {"return": ["name", "type", "path", "childrenCount"]},
             )
-            buses = result.get("return", [])
+            buses = result.get("return", []) if result else []
             lines = [f"[Master-Mixer Bus 拓扑] 共 {len(buses)} 个节点"]
             for bus in buses[:20]:
                 depth = bus.get("path", "").count("\\") - 2
@@ -165,7 +171,7 @@ class WwiseRAG:
                 {"from": {"ofType": ["Event"]}},
                 {"return": ["name", "path", "childrenCount"]},
             )
-            events = result.get("return", [])
+            events = result.get("return", []) if result else []
             lines = [f"[Event 列表] 共 {len(events)} 个 Event"]
             for ev in events[:30]:
                 action_count = ev.get("childrenCount", 0)
@@ -184,7 +190,7 @@ class WwiseRAG:
                 {"from": {"ofType": ["GameParameter"]}},
                 {"return": ["name", "path", "Min", "Max", "InitialValue"]},
             )
-            rtpcs = result.get("return", [])
+            rtpcs = result.get("return", []) if result else []
             lines = [f"[Game Parameter 列表] 共 {len(rtpcs)} 个"]
             for rtpc in rtpcs[:20]:
                 lines.append(f"  {rtpc.get('name')} "
@@ -199,10 +205,10 @@ class WwiseRAG:
         try:
             result = await adapter.call(
                 "ak.wwise.core.object.get",
-                {"from": {"path": "\\SoundBanks"}, "transform": [{"select": ["children"]}]},
+                {"from": {"path": ["\\SoundBanks"]}, "transform": [{"select": ["children"]}]},
                 {"return": ["name", "type", "path"]},
             )
-            banks = result.get("return", [])
+            banks = result.get("return", []) if result else []
             lines = [f"[SoundBank] 共 {len(banks)} 个（Wwise 2024.1 Auto-Defined 模式，无需手动管理）"]
             for bank in banks[:10]:
                 lines.append(f"  {bank.get('name')}")

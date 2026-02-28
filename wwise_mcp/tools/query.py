@@ -33,8 +33,30 @@ async def get_project_hierarchy() -> dict:
     """
     try:
         adapter = WwiseAdapter()
+
+        # 获取项目名（来自根路径对象）
+        root_obj = await adapter.get_objects(
+            from_spec={"path": ["\\"]},
+            return_fields=["name", "path"],
+        )
+        project_name = root_obj[0].get("name", "Unknown") if root_obj else "Unknown"
+
+        # WAAPI 2024.1 不支持从根路径用 transform 获取子节点，
+        # 直接查询各已知顶层路径（一次调用，path 为数组）
+        known_roots = [
+            "\\Actor-Mixer Hierarchy",
+            "\\Master-Mixer Hierarchy",
+            "\\Events",
+            "\\SoundBanks",
+            "\\Game Parameters",
+            "\\Switches",
+            "\\States",
+            "\\Interactive Music Hierarchy",
+            "\\Effects",
+            "\\Attenuations",
+        ]
         root_children = await adapter.get_objects(
-            from_spec={"path": "\\"},
+            from_spec={"path": known_roots},
             return_fields=["name", "type", "childrenCount", "path"],
         )
 
@@ -50,7 +72,7 @@ async def get_project_hierarchy() -> dict:
         info = await adapter.get_info()
         return _ok({
             "wwise_version": info.get("version", {}).get("displayName", "Unknown"),
-            "project_name": info.get("projectName", "Unknown"),
+            "project_name": project_name,
             "hierarchy": summary,
         })
     except WwiseMCPError as e:
@@ -70,19 +92,14 @@ async def get_object_properties(object_path: str, page: int = 1, page_size: int 
     """
     try:
         adapter = WwiseAdapter()
+        # 只请求通用字段；音频属性字段（Volume/Pitch 等）仅对 Sound 类型有效，
+        # 混入其他类型（Event/Bus 等）会导致 WAAPI "Unknown accessor" 错误。
+        # 具体属性名通过下方 getPropertyAndReferenceNames 获取。
         basic_fields = ["name", "type", "path", "id", "shortId", "notes"]
-        key_props = [
-            "Volume", "Pitch", "LowPassFilter", "HighPassFilter",
-            "OutputBus", "OutputBusVolume", "OutputBusMixerGain",
-            "Positioning.EnablePositioning", "Positioning.SpeakerPanning",
-            "MakeUpGain", "InnerRadius", "OuterRadius",
-            "MaxSoundInstances", "UseGameDefinedAuxSends",
-        ]
-        return_fields = basic_fields + key_props
 
         objects = await adapter.get_objects(
-            from_spec={"path": object_path},
-            return_fields=return_fields,
+            from_spec={"path": [object_path]},
+            return_fields=basic_fields,
         )
 
         if not objects:
@@ -97,9 +114,9 @@ async def get_object_properties(object_path: str, page: int = 1, page_size: int 
         try:
             prop_result = await adapter.call(
                 "ak.wwise.core.object.getPropertyAndReferenceNames",
-                {"object": {"path": object_path}},
+                {"object": object_path},
             )
-            all_props = prop_result.get("return", [])
+            all_props = prop_result.get("return", []) if prop_result else []
         except Exception:
             all_props = []
 
@@ -148,7 +165,7 @@ async def search_objects(
                     "RandomSequenceContainer", "SwitchContainer",
                 ]
             },
-            "where": [["name", "contains", query]],
+            # 注意：WAAPI 2024.1 不支持顶层 where 参数，改为客户端过滤
         }
 
         result = await adapter.call(
@@ -156,7 +173,11 @@ async def search_objects(
             args,
             {"return": ["name", "type", "path", "id"]},
         )
-        objects = result.get("return", [])
+        all_objects = result.get("return", []) if result else []
+
+        # 客户端按名称子串过滤（不区分大小写）
+        query_lower = query.lower()
+        objects = [o for o in all_objects if query_lower in o.get("name", "").lower()]
         objects.sort(key=lambda x: x.get("path", ""))
         objects = objects[:max_results]
 
@@ -179,18 +200,17 @@ async def get_bus_topology() -> dict:
     try:
         adapter = WwiseAdapter()
         args = {
-            "from": {"path": "\\Master-Mixer Hierarchy"},
-            "transform": [
-                {"select": ["descendants"]},
-                {"where": [["type", "=", "Bus"]]},
-            ],
+            "from": {"path": ["\\Master-Mixer Hierarchy"]},
+            "transform": [{"select": ["descendants"]}],
+            # 注意：transform where 在 WAAPI 2024.1 中不支持，改为客户端过滤
         }
         result = await adapter.call(
             "ak.wwise.core.object.get",
             args,
             {"return": ["name", "type", "path", "id", "childrenCount"]},
         )
-        buses = result.get("return", [])
+        all_descendants = result.get("return", []) if result else []
+        buses = [o for o in all_descendants if o.get("type") == "Bus"]
 
         return _ok({
             "total_buses": len(buses),
@@ -213,7 +233,7 @@ async def get_event_actions(event_path: str) -> dict:
         adapter = WwiseAdapter()
 
         events = await adapter.get_objects(
-            from_spec={"path": event_path},
+            from_spec={"path": [event_path]},
             return_fields=["name", "type", "path", "id"],
         )
         if not events:
@@ -221,7 +241,7 @@ async def get_event_actions(event_path: str) -> dict:
                             "请先调用 search_objects 搜索 Event 的正确路径")
 
         args = {
-            "from": {"path": event_path},
+            "from": {"path": [event_path]},
             "transform": [{"select": ["children"]}],
         }
         result = await adapter.call(
@@ -253,10 +273,10 @@ async def get_soundbank_info(soundbank_name: str | None = None) -> dict:
         adapter = WwiseAdapter()
 
         if soundbank_name:
-            args = {"from": {"path": f"\\SoundBanks\\{soundbank_name}"}}
+            args = {"from": {"path": [f"\\SoundBanks\\{soundbank_name}"]}}
         else:
             args = {
-                "from": {"path": "\\SoundBanks"},
+                "from": {"path": ["\\SoundBanks"]},
                 "transform": [{"select": ["children"]}],
             }
 
