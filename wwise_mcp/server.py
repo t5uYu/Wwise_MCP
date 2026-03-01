@@ -1,6 +1,6 @@
 """
 WwiseMCP Server 入口
-FastMCP 实例化 + 19 个工具注册 + 生命周期管理
+FastMCP 实例化 + 17 个工具注册 + 生命周期管理
 
 启动方式：
   python -m wwise_mcp.server          # stdio 模式（Cursor / Claude Desktop）
@@ -34,8 +34,6 @@ from .tools import (
     set_property,
     create_event,
     assign_bus,
-    set_rtpc_binding,
-    add_effect,
     delete_object,
     move_object,
     # Verify
@@ -84,7 +82,7 @@ async def _ensure_connection():
 
 
 # ------------------------------------------------------------------
-# 工具注册（19 个）
+# 工具注册（17 个）
 # ------------------------------------------------------------------
 
 # --- 查询类（7 个）---
@@ -183,7 +181,7 @@ async def tool_get_rtpc_list(max_results: int = 50) -> dict:
     return await get_rtpc_list(max_results)
 
 
-# --- 操作类（8 个）---
+# --- 操作类（6 个）---
 
 @mcp.tool()
 async def tool_create_object(
@@ -263,45 +261,6 @@ async def tool_assign_bus(object_path: str, bus_path: str) -> dict:
     await _ensure_connection()
     return await assign_bus(object_path, bus_path)
 
-
-@mcp.tool()
-async def tool_set_rtpc_binding(
-    object_path: str,
-    property: str,
-    game_parameter_path: str,
-    curve_type: str = "Linear",
-) -> dict:
-    """
-    将 Game Parameter（RTPC）绑定到对象属性，实现实时参数控制。
-
-    Args:
-        object_path:         目标对象路径
-        property:            要绑定的属性，如 'Volume', 'Pitch', 'LowPassFilter'
-        game_parameter_path: Game Parameter 路径，如 '\\\\Game Parameters\\\\Default Work Unit\\\\Distance'
-        curve_type:          曲线类型：'Linear' | 'Log1' | 'Log2' | 'Log3' | 'Exp1' | 'SCurve' 等
-    """
-    await _ensure_connection()
-    return await set_rtpc_binding(object_path, property, game_parameter_path, curve_type)
-
-
-@mcp.tool()
-async def tool_add_effect(
-    object_path: str,
-    effect_type: str,
-    slot: int = 0,
-    effect_name: str | None = None,
-) -> dict:
-    """
-    在对象的效果器链上添加 Effect。
-
-    Args:
-        object_path: 目标 Sound/Bus 路径
-        effect_type: 效果器类型，如 'Wwise Compressor', 'Wwise Parametric EQ', 'Wwise Reverb'
-        slot:        效果器插槽索引（0-3）
-        effect_name: 效果器名称（可选，默认自动生成）
-    """
-    await _ensure_connection()
-    return await add_effect(object_path, effect_type, slot, effect_name)
 
 
 @mcp.tool()

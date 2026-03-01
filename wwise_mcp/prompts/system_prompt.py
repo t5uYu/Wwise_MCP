@@ -72,7 +72,7 @@ BLOCK_2_OBJECT_MODEL = """
 RTPC（Real-Time Parameter Control）将 Game Parameter 驱动到对象属性：
 - 常用绑定：Distance → Volume（衰减）、Speed → Pitch、HP → Lowpass
 - 曲线类型：Linear / Log1~3 / Exp1~3 / SCurve / InvertedSCurve
-- 绑定时使用 set_rtpc_binding 工具，验证时调用 get_object_properties 确认 RTPC 节点出现
+- RTPC 绑定需在 Wwise 属性编辑器中手动完成（右键属性 → Add RTPC），API 不支持自动化
 """.strip()
 
 # ============================================================

@@ -12,8 +12,6 @@ from .action import (
     set_property,
     create_event,
     assign_bus,
-    set_rtpc_binding,
-    add_effect,
     delete_object,
     move_object,
 )
@@ -37,8 +35,6 @@ __all__ = [
     "set_property",
     "create_event",
     "assign_bus",
-    "set_rtpc_binding",
-    "add_effect",
     "delete_object",
     "move_object",
     # Verify

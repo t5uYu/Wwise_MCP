@@ -1,5 +1,5 @@
 """
-Layer 4 — 操作类工具（8 个）
+Layer 4 — 操作类工具（6 个）
 """
 
 import logging
@@ -246,65 +246,6 @@ async def assign_bus(object_path: str, bus_path: str) -> dict:
     except Exception as e:
         return _err_raw("unexpected_error", str(e))
 
-
-async def set_rtpc_binding(
-    object_path: str,
-    property: str,
-    game_parameter_path: str,
-    curve_type: str = "Linear",
-) -> dict:
-    """
-    将 Game Parameter（RTPC）绑定到对象属性。
-
-    ⚠️ WAAPI 限制：Wwise WAAPI 2024.1 不支持通过 API 创建 RTPC 绑定。
-    该操作需要在 Wwise 图形界面中手动完成。
-
-    Args:
-        object_path:          目标对象路径
-        property:             要绑定的属性，如 'Volume', 'Pitch', 'LowPassFilter'
-        game_parameter_path:  Game Parameter 路径，如 '\\Game Parameters\\Default Work Unit\\Distance'
-        curve_type:           曲线类型：'Linear' | 'Log1' | 'Log2' | 'Exp1' | 'SCurve' | 'InvertedSCurve'
-    """
-    param_name = game_parameter_path.split("\\")[-1]
-    return _err_raw(
-        "waapi_not_supported",
-        f"Wwise WAAPI 2024.1 不支持通过 API 创建 RTPC 绑定（将 Game Parameter 关联到对象属性）。"
-        f"经实测确认：'Rtpc' 类型无法通过 ak.wwise.core.object.create 创建，"
-        f"ak.wwise.core.object.addObjectToList 在 2024.1 中不存在。",
-        f"请在 Wwise 中手动操作：选中对象 '{object_path.split(chr(92))[-1]}' "
-        f"→ 属性编辑器 → 找到属性 '{property}' → 右键 → Add RTPC "
-        f"→ 选择 Game Parameter '{param_name}'（曲线类型：{curve_type}）。",
-    )
-
-
-async def add_effect(
-    object_path: str,
-    effect_type: str,
-    slot: int = 0,
-    effect_name: str | None = None,
-) -> dict:
-    """
-    在对象的效果器链上添加 Effect。
-
-    ⚠️ WAAPI 限制：Wwise WAAPI 2024.1 不支持通过 API 在 Sound/Bus 上创建 Effect Slot。
-    该操作需要在 Wwise 图形界面中手动完成。
-
-    Args:
-        object_path: 目标 Sound/Bus 路径
-        effect_type: 效果器类型，如 'Wwise Compressor', 'Wwise Parametric EQ', 'Wwise RoomVerb'
-        slot:        效果器插槽索引（0-3）
-        effect_name: 效果器名称（可选）
-    """
-    obj_name = object_path.split("\\")[-1]
-    return _err_raw(
-        "waapi_not_supported",
-        f"Wwise WAAPI 2024.1 不支持通过 API 在 Sound/Bus 对象上创建 Effect Slot。"
-        f"经实测确认：EffectSlot 类型无法通过 ak.wwise.core.object.create 创建（Sound/Bus 均不允许），"
-        f"Effect 类型对象也无法在 Effects 工作单元下通过 API 创建。",
-        f"请在 Wwise 中手动操作：选中对象 '{obj_name}' "
-        f"→ 属性编辑器 → Effects 标签页 → Effect Slot {slot} "
-        f"→ 点击添加 → 选择效果器类型 '{effect_type}'。",
-    )
 
 
 async def delete_object(object_path: str, force: bool = False) -> dict:
