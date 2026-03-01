@@ -331,3 +331,33 @@ async def get_rtpc_list(max_results: int = 50) -> dict:
         return _err(e)
     except Exception as e:
         return _err_raw("unexpected_error", str(e))
+
+
+async def get_selected_objects() -> dict:
+    """
+    获取 Wwise UI 中当前选中的对象列表。
+
+    让 Claude 直接感知用户在 Wwise 里选中了什么，无需用户手动粘贴路径。
+    选中多个对象时全部返回。未选中任何对象时返回空列表。
+    """
+    try:
+        adapter = WwiseAdapter()
+        result = await adapter.call(
+            "ak.wwise.ui.getSelectedObjects",
+            {},
+            {"return": ["name", "type", "path", "id", "notes", "childrenCount"]},
+        )
+        objects = result.get("objects", []) if result else []
+        return _ok({
+            "count": len(objects),
+            "objects": objects,
+            "hint": (
+                "No objects selected"
+                if not objects
+                else f"{len(objects)} object(s) selected - paths ready for use with other tools"
+            ),
+        })
+    except WwiseMCPError as e:
+        return _err(e)
+    except Exception as e:
+        return _err_raw("unexpected_error", str(e))

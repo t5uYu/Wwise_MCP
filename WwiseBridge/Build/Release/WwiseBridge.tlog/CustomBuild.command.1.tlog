@@ -1,0 +1,4 @@
+^D:\GIT\BRANCH\WWISE_AGENT\WWISEBRIDGE\WWISEBRIDGE.XML
+if not exist "D:\Audiokinetic\Wwise2024.1.8.8898\Authoring\x64\Release\bin\Plugins\" mkdir "D:\Audiokinetic\Wwise2024.1.8.8898\Authoring\x64\Release\bin\Plugins\"
+if exist "D:\Audiokinetic\Wwise2024.1.8.8898\Authoring\x64\Release\bin\Plugins\WwiseBridge.xml" del /F /Q "D:\Audiokinetic\Wwise2024.1.8.8898\Authoring\x64\Release\bin\Plugins\WwiseBridge.xml"
+copy /y "D:\Git\Branch\Wwise_Agent\WwiseBridge\WwiseBridge.xml" "D:\Audiokinetic\Wwise2024.1.8.8898\Authoring\x64\Release\bin\Plugins\WwiseBridge.xml"

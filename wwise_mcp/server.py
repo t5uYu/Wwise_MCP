@@ -1,10 +1,10 @@
 """
-WwiseMCP Server 入口
-FastMCP 实例化 + 17 个工具注册 + 生命周期管理
+WwiseMCP Server
+FastMCP instance + 19 tools + lifecycle management
 
-启动方式：
-  python -m wwise_mcp.server          # stdio 模式（Cursor / Claude Desktop）
-  python -m wwise_mcp.server --sse    # SSE 模式
+Start:
+  python -m wwise_mcp.server          # stdio mode (Cursor / Claude Desktop)
+  python -m wwise_mcp.server --sse    # SSE mode
 """
 
 import asyncio
@@ -29,6 +29,7 @@ from .tools import (
     get_event_actions,
     get_soundbank_info,
     get_rtpc_list,
+    get_selected_objects,
     # Action
     create_object,
     set_property,
@@ -36,6 +37,7 @@ from .tools import (
     assign_bus,
     delete_object,
     move_object,
+    preview_event,
     # Verify
     verify_structure,
     verify_event_completeness,
@@ -43,7 +45,6 @@ from .tools import (
     execute_waapi,
 )
 
-# 日志配置
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -53,7 +54,7 @@ logger = logging.getLogger("wwise_mcp.server")
 
 
 # ------------------------------------------------------------------
-# FastMCP 实例化
+# FastMCP
 # ------------------------------------------------------------------
 
 mcp = FastMCP(
@@ -63,10 +64,9 @@ mcp = FastMCP(
 
 
 # ------------------------------------------------------------------
-# 生命周期：建立 WAAPI 连接
+# Lifecycle
 # ------------------------------------------------------------------
 
-# 在 server 启动时初始化连接
 _connection_initialized = False
 
 async def _ensure_connection():
@@ -75,27 +75,40 @@ async def _ensure_connection():
         conn = init_connection()
         try:
             await conn.ensure_connected()
-            logger.info("WAAPI 连接已建立：%s", settings.waapi_url)
+            logger.info("WAAPI connected: %s", settings.waapi_url)
         except Exception as e:
-            logger.warning("WAAPI 初始连接失败（工具调用时将自动重试）：%s", e)
+            logger.warning("WAAPI initial connection failed (will retry on tool call): %s", e)
         _connection_initialized = True
 
 
 # ------------------------------------------------------------------
-# 工具注册（17 个）
+# Query tools (8)
 # ------------------------------------------------------------------
-
-# --- 查询类（7 个）---
 
 @mcp.tool()
 async def tool_get_project_hierarchy() -> dict:
     """
-    获取 Wwise 项目顶层结构概览。
-    返回各主要层级（Actor-Mixer、Master-Mixer、Events 等）的对象数量和类型。
-    2024.1 注意：Auto-Defined SoundBank 场景下 SoundBanks 节点可能为空，属正常行为。
+    Get a top-level overview of the Wwise project structure.
+    Returns object counts and types for each major hierarchy
+    (Actor-Mixer, Master-Mixer, Events, etc.).
+    Note: In Wwise 2024.1 Auto-Defined SoundBank mode the SoundBanks node
+    may be empty — this is expected behaviour.
     """
     await _ensure_connection()
     return await get_project_hierarchy()
+
+
+@mcp.tool()
+async def tool_get_selected_objects() -> dict:
+    """
+    Get the list of objects currently selected in the Wwise UI.
+
+    Allows Claude to know what the user has selected without requiring
+    them to copy-paste paths. Call this first before any operation so
+    the selected objects can serve as the starting point.
+    """
+    await _ensure_connection()
+    return await get_selected_objects()
 
 
 @mcp.tool()
@@ -105,12 +118,12 @@ async def tool_get_object_properties(
     page_size: int = 30,
 ) -> dict:
     """
-    获取指定 Wwise 对象的属性详情。
+    Get property details for a specific Wwise object.
 
     Args:
-        object_path: WAAPI 路径，如 '\\\\Actor-Mixer Hierarchy\\\\Default Work Unit\\\\MySFX'
-        page:        分页页码（从 1 开始）
-        page_size:   每页属性数量，默认 30
+        object_path: WAAPI path, e.g. '\\\\Actor-Mixer Hierarchy\\\\Default Work Unit\\\\MySFX'
+        page:        Page number (starts at 1)
+        page_size:   Properties per page, default 30
     """
     await _ensure_connection()
     return await get_object_properties(object_path, page, page_size)
@@ -123,12 +136,12 @@ async def tool_search_objects(
     max_results: int = 20,
 ) -> dict:
     """
-    按关键词模糊搜索 Wwise 对象。
+    Fuzzy-search Wwise objects by name.
 
     Args:
-        query:       搜索关键词（对象名称模糊匹配）
-        type_filter: 可选类型过滤，如 'Sound SFX', 'Event', 'Bus', 'GameParameter'
-        max_results: 最多返回结果数，默认 20
+        query:       Search keyword (case-insensitive substring match)
+        type_filter: Optional type filter, e.g. 'Sound SFX', 'Event', 'Bus', 'GameParameter'
+        max_results: Maximum results to return, default 20
     """
     await _ensure_connection()
     return await search_objects(query, type_filter, max_results)
@@ -137,7 +150,7 @@ async def tool_search_objects(
 @mcp.tool()
 async def tool_get_bus_topology() -> dict:
     """
-    获取 Master-Mixer Hierarchy 中所有 Bus 的拓扑结构（混音路由架构）。
+    Get the full Bus topology from the Master-Mixer Hierarchy (mixing routing architecture).
     """
     await _ensure_connection()
     return await get_bus_topology()
@@ -146,10 +159,10 @@ async def tool_get_bus_topology() -> dict:
 @mcp.tool()
 async def tool_get_event_actions(event_path: str) -> dict:
     """
-    获取指定 Event 下所有 Action 的详情（类型、Target 引用等）。
+    Get all Actions under a specific Event (type, Target reference, etc.).
 
     Args:
-        event_path: Event 对象的完整 WAAPI 路径
+        event_path: Full WAAPI path of the Event object
     """
     await _ensure_connection()
     return await get_event_actions(event_path)
@@ -158,12 +171,13 @@ async def tool_get_event_actions(event_path: str) -> dict:
 @mcp.tool()
 async def tool_get_soundbank_info(soundbank_name: str | None = None) -> dict:
     """
-    获取 SoundBank 信息。
+    Get SoundBank information.
 
     Args:
-        soundbank_name: 指定名称；为 None 时返回所有 SoundBank 概览。
+        soundbank_name: Specific bank name; None returns an overview of all banks.
 
-    注意：Wwise 2024.1 默认开启 Auto-Defined SoundBank，通常无需手动管理。
+    Note: Wwise 2024.1 uses Auto-Defined SoundBank by default — manual management
+    is usually unnecessary.
     """
     await _ensure_connection()
     return await get_soundbank_info(soundbank_name)
@@ -172,16 +186,18 @@ async def tool_get_soundbank_info(soundbank_name: str | None = None) -> dict:
 @mcp.tool()
 async def tool_get_rtpc_list(max_results: int = 50) -> dict:
     """
-    获取项目中所有 Game Parameter（RTPC）列表，含名称、范围、默认值。
+    Get all Game Parameters (RTPCs) in the project, with name, range, and default value.
 
     Args:
-        max_results: 最多返回数量，默认 50
+        max_results: Maximum number to return, default 50
     """
     await _ensure_connection()
     return await get_rtpc_list(max_results)
 
 
-# --- 操作类（6 个）---
+# ------------------------------------------------------------------
+# Action tools (7)
+# ------------------------------------------------------------------
 
 @mcp.tool()
 async def tool_create_object(
@@ -192,14 +208,14 @@ async def tool_create_object(
     notes: str = "",
 ) -> dict:
     """
-    在指定父节点下创建 Wwise 对象。
+    Create a Wwise object under the specified parent node.
 
     Args:
-        name:        新对象名称
-        obj_type:    类型：'Sound SFX' | 'Event' | 'Bus' | 'BlendContainer' | 'Action' 等
-        parent_path: 父对象的完整 WAAPI 路径
-        on_conflict: 名称冲突处理：'rename'（默认）| 'replace' | 'fail'
-        notes:       备注（可选）
+        name:        New object name
+        obj_type:    Type: 'Sound SFX' | 'Event' | 'Bus' | 'BlendContainer' | 'Action' etc.
+        parent_path: Full WAAPI path of the parent object
+        on_conflict: Conflict handling: 'rename' (default) | 'replace' | 'fail'
+        notes:       Optional notes
     """
     await _ensure_connection()
     return await create_object(name, obj_type, parent_path, on_conflict, notes)
@@ -214,17 +230,33 @@ async def tool_set_property(
     platform: str | None = None,
 ) -> dict:
     """
-    设置对象的一个或多个属性。
+    Set one or more properties on an object.
 
     Args:
-        object_path: 目标对象路径
-        property:    单个属性名，如 'Volume', 'Pitch', 'LowPassFilter'
-        value:       单个属性值（与 property 配合使用）
-        properties:  批量属性字典，如 {"Volume": -6.0, "Pitch": 200}（推荐，减少调用次数）
-        platform:    目标平台（None 表示所有平台）
+        object_path: Target object path
+        property:    Single property name, e.g. 'Volume', 'Pitch', 'LowPassFilter'
+        value:       Single property value (use with property)
+        properties:  Batch property dict, e.g. {"Volume": -6.0, "Pitch": 200} (recommended)
+        platform:    Target platform (None = all platforms)
     """
     await _ensure_connection()
     return await set_property(object_path, property, value, properties, platform)
+
+
+@mcp.tool()
+async def tool_preview_event(event_path: str, action: str = "play") -> dict:
+    """
+    Preview an Event in Wwise Authoring via the Transport API (no game connection needed).
+
+    Args:
+        event_path: Full WAAPI path of the Event
+        action:     'play' (default) | 'stop' | 'pause' | 'resume'
+
+    Equivalent to pressing F5 in Wwise. Use this to verify audio changes immediately
+    after editing parameters — no SoundBank rebuild required.
+    """
+    await _ensure_connection()
+    return await preview_event(event_path, action)
 
 
 @mcp.tool()
@@ -235,15 +267,15 @@ async def tool_create_event(
     parent_path: str = "\\Events\\Default Work Unit",
 ) -> dict:
     """
-    创建 Wwise Event 及其 Action（自动完成三步操作：创建Event→创建Action→设置Target）。
+    Create a Wwise Event and its Action in one step (Event -> Action -> Target).
 
     Args:
-        event_name:  Event 名称，建议以动词开头，如 'Play_Explosion'
+        event_name:  Event name, recommended verb prefix e.g. 'Play_Explosion'
         action_type: 'Play' | 'Stop' | 'Pause' | 'Resume' | 'Break' | 'Mute' | 'UnMute'
-        target_path: Action 目标对象路径（Sound/Container 等）
-        parent_path: Event 父节点路径，默认 Default Work Unit
+        target_path: Action target object path (Sound / Container etc.)
+        parent_path: Event parent path, default is Default Work Unit
 
-    2024.1 特性：创建后无需生成 SoundBank 即可通过 Live Editing 即时验证。
+    Wwise 2024.1: No SoundBank rebuild needed — verify immediately via Live Editing.
     """
     await _ensure_connection()
     return await create_event(event_name, action_type, target_path, parent_path)
@@ -252,27 +284,26 @@ async def tool_create_event(
 @mcp.tool()
 async def tool_assign_bus(object_path: str, bus_path: str) -> dict:
     """
-    将对象路由到指定 Bus（设置 OutputBus）。
+    Route an object to a specific Bus (set OutputBus).
 
     Args:
-        object_path: 目标 Sound/Container 的路径
-        bus_path:    目标 Bus 的完整路径，如 '\\\\Master-Mixer Hierarchy\\\\Master Audio Bus\\\\SFX'
+        object_path: Target Sound/Container path
+        bus_path:    Full Bus path, e.g. '\\\\Master-Mixer Hierarchy\\\\Master Audio Bus\\\\SFX'
     """
     await _ensure_connection()
     return await assign_bus(object_path, bus_path)
 
 
-
 @mcp.tool()
 async def tool_delete_object(object_path: str, force: bool = False) -> dict:
     """
-    删除 Wwise 对象。
+    Delete a Wwise object.
 
     Args:
-        object_path: 要删除对象的完整路径
-        force:       False（默认）先检查引用再删除；True 跳过引用检查直接删除
+        object_path: Full path of the object to delete
+        force:       False (default) checks references first; True skips the check
 
-    注意：删除前建议先调用 verify_structure 确认无悬空引用。
+    Tip: run verify_structure before deleting to avoid dangling references.
     """
     await _ensure_connection()
     return await delete_object(object_path, force)
@@ -281,27 +312,30 @@ async def tool_delete_object(object_path: str, force: bool = False) -> dict:
 @mcp.tool()
 async def tool_move_object(object_path: str, new_parent_path: str) -> dict:
     """
-    将对象移动到新父节点（整理项目结构时使用）。
+    Move an object to a new parent node (for reorganising project structure).
 
     Args:
-        object_path:     要移动对象的完整路径
-        new_parent_path: 目标父节点路径
+        object_path:     Full path of the object to move
+        new_parent_path: Target parent node path
     """
     await _ensure_connection()
     return await move_object(object_path, new_parent_path)
 
 
-# --- 验证类（2 个）---
+# ------------------------------------------------------------------
+# Verify tools (2)
+# ------------------------------------------------------------------
 
 @mcp.tool()
 async def tool_verify_structure(scope_path: str | None = None) -> dict:
     """
-    结构完整性验证。每完成一个独立操作目标后调用此工具。
+    Structural integrity check. Call this after completing each independent goal.
 
-    检查项：Event→Action 关联、Action→Target 引用、Bus 路由、属性值范围、孤立对象。
+    Checks: Event->Action links, Action->Target references, Bus routing,
+    property value ranges, orphaned objects.
 
     Args:
-        scope_path: 验证范围路径（None 表示全项目验证）
+        scope_path: Path to limit the check scope (None = full project)
     """
     await _ensure_connection()
     return await verify_structure(scope_path)
@@ -310,18 +344,21 @@ async def tool_verify_structure(scope_path: str | None = None) -> dict:
 @mcp.tool()
 async def tool_verify_event_completeness(event_path: str) -> dict:
     """
-    专项验证：检查 Event 在 Wwise 2024.1 Auto-Defined SoundBank 场景下是否可正常触发。
+    Verify that an Event can fire correctly in Wwise 2024.1 Auto-Defined SoundBank mode.
 
-    检查：Event存在 → Action完整 → Target引用有效 → AudioFileSource有音频文件 → Auto-Defined Bank已就绪。
+    Checks: Event exists -> Actions complete -> Targets valid ->
+    AudioFileSource has audio file -> Auto-Defined Bank ready.
 
     Args:
-        event_path: 要验证的 Event 完整路径
+        event_path: Full path of the Event to verify
     """
     await _ensure_connection()
     return await verify_event_completeness(event_path)
 
 
-# --- 兜底类（1 个）---
+# ------------------------------------------------------------------
+# Fallback tool (1)
+# ------------------------------------------------------------------
 
 @mcp.tool()
 async def tool_execute_waapi(
@@ -330,14 +367,14 @@ async def tool_execute_waapi(
     opts: dict = {},
 ) -> dict:
     """
-    直接执行原始 WAAPI 调用（兜底工具，当预定义工具无法满足需求时使用）。
+    Execute a raw WAAPI call directly (fallback tool for cases not covered by other tools).
 
     Args:
-        uri:  WAAPI 函数 URI，如 'ak.wwise.core.object.get'
-        args: WAAPI arguments 参数字典
-        opts: WAAPI options 参数字典
+        uri:  WAAPI function URI, e.g. 'ak.wwise.core.object.get'
+        args: WAAPI arguments dict
+        opts: WAAPI options dict
 
-    安全限制：以下操作被黑名单禁止：
+    Security: the following URIs are blacklisted:
     project.open / project.close / project.save / remote.connect / remote.disconnect
     """
     await _ensure_connection()
@@ -345,37 +382,35 @@ async def tool_execute_waapi(
 
 
 # ------------------------------------------------------------------
-# System Prompt（作为 MCP Resource 暴露）
+# System Prompt resource
 # ------------------------------------------------------------------
 
 @mcp.resource("wwise://system_prompt")
 async def get_system_prompt() -> str:
-    """Wwise 2024.1 领域 System Prompt（供 MCP Client 获取并注入到 LLM）"""
+    """Wwise 2024.1 domain system prompt (for MCP clients to inject into LLM context)"""
     await _ensure_connection()
     dynamic = await build_dynamic_context()
     return STATIC_SYSTEM_PROMPT + dynamic
 
 
 # ------------------------------------------------------------------
-# 入口
+# Entry point
 # ------------------------------------------------------------------
 
 def main():
-    """命令行启动入口"""
     import argparse
-    parser = argparse.ArgumentParser(description="WwiseMCP Server — Wwise 2024.1 AI Agent")
-    parser.add_argument("--host", default=settings.host, help="Wwise WAAPI host（默认 127.0.0.1）")
-    parser.add_argument("--port", type=int, default=settings.port, help="Wwise WAAPI port（默认 8080）")
-    parser.add_argument("--transport", choices=["stdio", "sse"], default="stdio",
-                        help="MCP 传输模式：stdio（Cursor/Claude Desktop）或 sse")
-    parser.add_argument("--sse-port", type=int, default=8765, help="SSE 模式监听端口（默认 8765）")
+    parser = argparse.ArgumentParser(description="WwiseMCP Server - Wwise 2024.1 AI Agent")
+    parser.add_argument("--host", default=settings.host)
+    parser.add_argument("--port", type=int, default=settings.port)
+    parser.add_argument("--transport", choices=["stdio", "sse"], default="stdio")
+    parser.add_argument("--sse-port", type=int, default=8765)
     args = parser.parse_args()
 
-    # 覆盖配置
     settings.host = args.host
     settings.port = args.port
 
-    logger.info("WwiseMCP Server 启动，WAAPI 目标：%s，传输模式：%s", settings.waapi_url, args.transport)
+    logger.info("WwiseMCP starting, WAAPI target: %s, transport: %s",
+                settings.waapi_url, args.transport)
 
     if args.transport == "sse":
         mcp.run(transport="sse", host="127.0.0.1", port=args.sse_port)

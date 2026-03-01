@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  WwiseBridge Plugin Descriptor
+
+  CompanyID 64  = Audiokinetic custom plug-in company slot
+  PluginID  47873 (0xBB01) = unique ID assigned to WwiseBridge
+
+  This plugin is Authoring-only.  It opens a WebSocket server on port 8081
+  so that WwiseMCP can communicate with Wwise internals that are not exposed
+  through WAAPI.
+-->
+<PluginModule>
+  <EffectPlugin Name="Wwise Bridge" CompanyID="64" PluginID="47873">
+    <PluginInfo>
+      <PlatformSupport>
+        <Platform Name="Any">
+          <CanBeInsertOnBusses>true</CanBeInsertOnBusses>
+          <CanBeInsertOnAudioObjects>false</CanBeInsertOnAudioObjects>
+          <CanBeRendered>false</CanBeRendered>
+        </Platform>
+      </PlatformSupport>
+    </PluginInfo>
+    <Properties>
+      <!-- No audio parameters: WwiseBridge is a pure Authoring tool plugin -->
+    </Properties>
+  </EffectPlugin>
+</PluginModule>

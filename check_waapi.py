@@ -1,49 +1,96 @@
 """
-WAAPI 连接检查脚本
+WAAPI + WwiseBridge connection check script
 
-在 Wwise 打开的情况下运行此脚本，验证 WAAPI 连接是否正常。
-确认连接正常后，再启动 wwise-mcp。
+Run this while Wwise is open to verify connections before starting wwise-mcp.
 
-用法：
+Usage:
     python check_waapi.py
-    python check_waapi.py --port 9090   # 自定义端口
+    python check_waapi.py --port 9090
+    python check_waapi.py --bridge-port 8082
 """
 
 import asyncio
 import argparse
 
 
-async def check_connection(host: str, port: int) -> None:
+def check_waapi(host: str, port: int) -> str | None:
+    """Synchronous WAAPI check (waapi-client manages its own event loop)."""
     url = f"ws://{host}:{port}/waapi"
-    print(f"正在连接 {url} ...")
+    print(f"Connecting to {url} ...")
 
     try:
         from waapi import WaapiClient
-        async with WaapiClient(url=url) as client:
-            result = await client.call("ak.wwise.core.getInfo")
-            version = result.get("version", {})
+        with WaapiClient(url=url) as client:
+            result = client.call("ak.wwise.core.getInfo") or {}
+            version = result.get("version", {}) or {}
             version_str = version.get("displayName", str(version))
-            print(f"\n✓ 连接成功！Wwise 版本：{version_str}")
-            print("→ 可以启动 wwise-mcp 了。\n")
-            print("  Claude Desktop / Cursor 配置示例：")
-            print('  "command": "wwise-mcp"')
-            print(f'  或 "args": ["-m", "wwise_mcp.server"]')
+            print(f"\n[OK] WAAPI: {version_str}")
+            return version_str
     except Exception as e:
-        print(f"\n✗ 连接失败：{e}\n")
-        print("请按以下步骤在 Wwise 中启用 WAAPI：")
-        print("  1. 打开 Wwise，加载你的项目")
-        print(f"  2. 菜单：Edit → Preferences → User Preferences")
-        print(f"  3. 找到「Enable Wwise Authoring API（WAAPI）」，勾选启用")
-        print(f"  4. 确认端口号为 {port}（默认 8080）")
-        print("  5. 点击 OK，重新运行此脚本\n")
+        print(f"\n[FAIL] WAAPI: {e}\n")
+        print("To enable WAAPI in Wwise:")
+        print("  1. Open Wwise with your project")
+        print("  2. Menu: Project -> User Preferences")
+        print(f"  3. Enable 'Wwise Authoring API (WAAPI)'")
+        print(f"  4. Confirm port is {port} (default 8080)")
+        print("  5. Click OK and re-run this script\n")
+        return None
+
+
+async def check_bridge_async(bridge_port: int) -> bool:
+    """Async WwiseBridge check."""
+    try:
+        import websockets
+    except ImportError:
+        print("[SKIP] websockets not installed: pip install 'websockets>=12.0'")
+        return False
+
+    import json
+    import uuid
+
+    url = f"ws://127.0.0.1:{bridge_port}/bridge"
+    request = {"id": str(uuid.uuid4()), "action": "ping"}
+
+    try:
+        async with websockets.connect(url, open_timeout=3, close_timeout=3) as ws:
+            await ws.send(json.dumps(request))
+            raw = await asyncio.wait_for(ws.recv(), timeout=3)
+            resp = json.loads(raw)
+
+        if resp.get("success"):
+            data = resp.get("data", {})
+            print(f"[OK] WwiseBridge port {bridge_port} - "
+                  f"wwise_version: {data.get('wwise_version', '?')}")
+            return True
+        else:
+            print(f"[FAIL] WwiseBridge returned error: {resp}")
+            return False
+
+    except Exception as e:
+        print(f"[--] WwiseBridge not running (optional, won't affect basic tools)")
+        print(f"     Start it with: python bridge_launcher.py")
+        return False
 
 
 def main():
-    parser = argparse.ArgumentParser(description="检查 Wwise WAAPI 连接")
-    parser.add_argument("--host", default="127.0.0.1", help="WAAPI host（默认 127.0.0.1）")
-    parser.add_argument("--port", type=int, default=8080, help="WAAPI port（默认 8080）")
+    parser = argparse.ArgumentParser(description="Check Wwise WAAPI + WwiseBridge")
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=8080)
+    parser.add_argument("--bridge-port", type=int, default=8081)
     args = parser.parse_args()
-    asyncio.run(check_connection(args.host, args.port))
+
+    # WAAPI uses its own event loop — call it synchronously first
+    waapi_version = check_waapi(args.host, args.port)
+
+    # Bridge check uses asyncio websockets
+    print(f"\n-- WwiseBridge (optional) --")
+    asyncio.run(check_bridge_async(args.bridge_port))
+
+    print()
+    if waapi_version:
+        print("[READY] All components connected. You can start wwise-mcp.\n")
+    else:
+        print("[WAIT] WAAPI not ready. Check Wwise settings and retry.\n")
 
 
 if __name__ == "__main__":

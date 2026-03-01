@@ -1,0 +1,5 @@
+; WwiseBridge.def — Module definition for WwiseBridge Authoring Plugin DLL
+
+LIBRARY "WwiseBridge"
+
+EXPORTS

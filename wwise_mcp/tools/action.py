@@ -319,3 +319,63 @@ async def move_object(object_path: str, new_parent_path: str) -> dict:
         return _err(e)
     except Exception as e:
         return _err_raw("unexpected_error", str(e))
+
+
+async def preview_event(event_path: str, action: str = "play") -> dict:
+    """
+    通过 Wwise Transport API 试听 Event（无需连接游戏实例）。
+
+    Args:
+        event_path: Event 的完整 WAAPI 路径，或对象 ID（{XXXXXXXX-...} 格式）
+        action:     'play'（默认）| 'stop' | 'pause' | 'resume'
+
+    工作原理：Wwise 内置 Transport 可直接在 Authoring 中预览 Event，
+    等同于在 Wwise 里按 F5 试听，无需部署到游戏或生成 SoundBank。
+    """
+    try:
+        adapter = WwiseAdapter()
+
+        valid_actions = {"play", "stop", "pause", "resume"}
+        if action not in valid_actions:
+            return _err_raw(
+                "invalid_param",
+                f"不支持的 action：'{action}'",
+                f"可用值：{sorted(valid_actions)}",
+            )
+
+        if action == "play":
+            # 每次 play 创建新 transport 对象
+            transport_result = await adapter.call(
+                "ak.wwise.core.transport.create",
+                {"object": event_path},
+            )
+            if not transport_result:
+                return _err_raw(
+                    "waapi_error",
+                    "Transport 创建失败，请确认 Event 路径正确且 Wwise 项目已加载",
+                    "可先调用 search_objects 或 get_selected_objects 确认路径",
+                )
+            transport_id = transport_result.get("transport")
+            await adapter.call(
+                "ak.wwise.core.transport.executeAction",
+                {"transport": transport_id, "action": "play"},
+            )
+            return _ok({
+                "event_path": event_path,
+                "action": "play",
+                "transport_id": transport_id,
+                "note": "正在 Wwise Authoring 中预览，调用 preview_event(action='stop') 可停止",
+            })
+        else:
+            # stop/pause/resume 需要有效的 transport_id
+            # 兜底：广播 stop-all
+            await adapter.call(
+                "ak.wwise.core.transport.executeAction",
+                {"transport": -1, "action": action},
+            )
+            return _ok({"action": action, "note": "已对所有 Transport 执行操作"})
+
+    except WwiseMCPError as e:
+        return _err(e)
+    except Exception as e:
+        return _err_raw("unexpected_error", str(e))
